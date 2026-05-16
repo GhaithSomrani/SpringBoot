@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: expense-tracker
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/expense_tracker
+      database: expense_tracker
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.xbc.backend: DEBUG
