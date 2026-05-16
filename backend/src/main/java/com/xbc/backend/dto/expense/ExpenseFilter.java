@@ -10,5 +10,6 @@ public record ExpenseFilter(
         LocalDate dateTo,
         BigDecimal minAmount,
         BigDecimal maxAmount,
-        String addedBy
+        String addedBy,
+        String eventId
 ) {}

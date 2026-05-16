@@ -42,12 +42,13 @@ public class ExpenseController {
             @RequestParam(required = false) BigDecimal minAmount,
             @RequestParam(required = false) BigDecimal maxAmount,
             @RequestParam(required = false) String addedBy,
+            @RequestParam(required = false) String eventId,
             @RequestParam(defaultValue = "0")    int page,
             @RequestParam(defaultValue = "20")   int size,
             @RequestParam(defaultValue = "date") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir) {
         ExpenseFilter filter = new ExpenseFilter(
-                categoryId, subcategoryId, dateFrom, dateTo, minAmount, maxAmount, addedBy);
+                categoryId, subcategoryId, dateFrom, dateTo, minAmount, maxAmount, addedBy, eventId);
         return ResponseEntity.ok(ApiResponse.success(
                 expenseService.getExpenses(groupId, filter, page, size, sortBy, sortDir)));
     }

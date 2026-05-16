@@ -13,7 +13,8 @@ import java.util.List;
 @Document(collection = "expenses")
 @CompoundIndexes({
         @CompoundIndex(name = "group_date",     def = "{'groupId': 1, 'date': -1}"),
-        @CompoundIndex(name = "group_category", def = "{'groupId': 1, 'categoryId': 1}")
+        @CompoundIndex(name = "group_category", def = "{'groupId': 1, 'categoryId': 1}"),
+        @CompoundIndex(name = "group_event",    def = "{'groupId': 1, 'eventId': 1}")
 })
 @Getter
 @Setter
@@ -38,4 +39,7 @@ public class Expense extends BaseEntity {
 
     @Indexed
     private String addedBy;
+
+    @Indexed
+    private String eventId;
 }

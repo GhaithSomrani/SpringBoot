@@ -66,6 +66,7 @@ public class ExpenseService {
                 .description(req.getDescription())
                 .attachments(req.getAttachments() != null ? req.getAttachments() : new ArrayList<>())
                 .addedBy(userId)
+                .eventId(req.getEventId())
                 .build();
         return toDto(expenseRepository.save(expense));
     }
@@ -212,6 +213,7 @@ public class ExpenseService {
         if (f.minAmount()     != null) list.add(Criteria.where("amount").gte(f.minAmount()));
         if (f.maxAmount()     != null) list.add(Criteria.where("amount").lte(f.maxAmount()));
         if (f.addedBy()       != null) list.add(Criteria.where("addedBy").is(f.addedBy()));
+        if (f.eventId()       != null) list.add(Criteria.where("eventId").is(f.eventId()));
         return list.size() == 1
                 ? list.get(0)
                 : new Criteria().andOperator(list.toArray(new Criteria[0]));

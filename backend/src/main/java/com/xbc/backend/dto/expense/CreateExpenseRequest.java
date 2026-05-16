@@ -37,4 +37,6 @@ public class CreateExpenseRequest {
     private String description;
 
     private List<String> attachments;
+
+    private String eventId;
 }
