@@ -19,10 +19,14 @@ public class GroupService {
 
     private final GroupRepository groupRepository;
     private final GroupSecurityService groupSecurityService;
+    private final CategoryService categoryService;
 
-    public GroupService(GroupRepository groupRepository, GroupSecurityService groupSecurityService) {
+    public GroupService(GroupRepository groupRepository,
+                        GroupSecurityService groupSecurityService,
+                        CategoryService categoryService) {
         this.groupRepository = groupRepository;
         this.groupSecurityService = groupSecurityService;
+        this.categoryService = categoryService;
     }
 
     public GroupDto createGroup(CreateGroupRequest request) {
@@ -33,7 +37,9 @@ public class GroupService {
                 .ownerId(userId)
                 .members(new ArrayList<>())
                 .build();
-        return toDto(groupRepository.save(group));
+        Group saved = groupRepository.save(group);
+        categoryService.seedDefaultCategories(saved.getId());
+        return toDto(saved);
     }
 
     public List<GroupDto> getMyGroups() {
