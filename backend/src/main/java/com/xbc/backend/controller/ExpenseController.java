@@ -2,6 +2,7 @@ package com.xbc.backend.controller;
 
 import com.xbc.backend.dto.ApiResponse;
 import com.xbc.backend.dto.expense.*;
+import com.xbc.backend.dto.file.AttachFileRequest;
 import com.xbc.backend.service.ExpenseService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -11,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/groups/{groupId}/expenses")
@@ -81,5 +81,23 @@ public class ExpenseController {
             @PathVariable String id) {
         expenseService.deleteExpense(groupId, id);
         return ResponseEntity.ok(ApiResponse.success("Expense deleted", null));
+    }
+
+    @PostMapping("/{id}/attachments")
+    public ResponseEntity<ApiResponse<ExpenseDto>> addAttachment(
+            @PathVariable String groupId,
+            @PathVariable String id,
+            @Valid @RequestBody AttachFileRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Attachment added",
+                expenseService.addAttachment(groupId, id, request.getFileId())));
+    }
+
+    @DeleteMapping("/{id}/attachments/{fileId}")
+    public ResponseEntity<ApiResponse<ExpenseDto>> removeAttachment(
+            @PathVariable String groupId,
+            @PathVariable String id,
+            @PathVariable String fileId) {
+        return ResponseEntity.ok(ApiResponse.success("Attachment removed",
+                expenseService.removeAttachment(groupId, id, fileId)));
     }
 }

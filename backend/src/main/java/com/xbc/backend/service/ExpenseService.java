@@ -18,6 +18,9 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
+// FileService is injected via setter to avoid a circular-dependency risk
+// (FileService → GroupSecurityService, ExpenseService → FileService).
+
 @Service
 public class ExpenseService {
 
@@ -29,6 +32,7 @@ public class ExpenseService {
     private final CategoryRepository categoryRepository;
     private final GroupSecurityService groupSecurityService;
     private final MongoTemplate mongoTemplate;
+    private FileService fileService;
 
     public ExpenseService(ExpenseRepository expenseRepository,
                           GroupRepository groupRepository,
@@ -40,6 +44,11 @@ public class ExpenseService {
         this.categoryRepository = categoryRepository;
         this.groupSecurityService = groupSecurityService;
         this.mongoTemplate = mongoTemplate;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setFileService(FileService fileService) {
+        this.fileService = fileService;
     }
 
     public ExpenseDto createExpense(String groupId, CreateExpenseRequest req) {
@@ -111,6 +120,38 @@ public class ExpenseService {
         Expense expense = findInGroup(groupId, expenseId);
         requireAdderOrEdit(expense, groupId);
         expenseRepository.deleteById(expenseId);
+        // Best-effort: delete attached files after the expense record is gone.
+        fileService.deleteAll(expense.getAttachments());
+    }
+
+    public ExpenseDto addAttachment(String groupId, String expenseId, String fileId) {
+        verifyGroupExists(groupId);
+        requireViewAccess(groupId);
+        Expense expense = findInGroup(groupId, expenseId);
+        requireAdderOrEdit(expense, groupId);
+        List<String> attachments = expense.getAttachments();
+        if (attachments == null) {
+            attachments = new ArrayList<>();
+            expense.setAttachments(attachments);
+        }
+        if (!attachments.contains(fileId)) {
+            attachments.add(fileId);
+            expenseRepository.save(expense);
+        }
+        return toDto(expense);
+    }
+
+    public ExpenseDto removeAttachment(String groupId, String expenseId, String fileId) {
+        verifyGroupExists(groupId);
+        requireViewAccess(groupId);
+        Expense expense = findInGroup(groupId, expenseId);
+        requireAdderOrEdit(expense, groupId);
+        if (expense.getAttachments() != null) {
+            expense.getAttachments().remove(fileId);
+            expenseRepository.save(expense);
+        }
+        fileService.deleteAll(List.of(fileId));
+        return toDto(expense);
     }
 
     public ExpenseSummaryDto getSummary(String groupId) {
