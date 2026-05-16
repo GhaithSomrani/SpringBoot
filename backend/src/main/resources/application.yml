@@ -10,6 +10,17 @@ spring:
       enabled: true
       max-file-size: 10MB
       max-request-size: 11MB
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: your-email@gmail.com
+    password: your-app-password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
 server:
   port: 8080
@@ -22,3 +33,4 @@ app:
   jwt:
     secret: 7f9e2a4b6c8d1e3f5a7b9c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c8d
     expiration: 604800000
+  base-url: http://localhost:8080
