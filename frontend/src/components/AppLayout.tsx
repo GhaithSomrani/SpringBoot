@@ -33,6 +33,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from '@/api/notifications';
+import { getMyInvitations } from '@/api/invitations';
 import { getMyGroups, type GroupDto } from '@/api/groups';
 import type { AuthUser } from '@/types';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -62,6 +63,11 @@ const N_ICON: Record<string, React.ElementType> = {
   MEMBER_JOINED:      UserCheck,
   INVITE_RECEIVED:    Mail,
   PERMISSION_CHANGED: Shield,
+  INVITATION_ACCEPTED: UserCheck,
+  INVITATION_DECLINED: Mail,
+  UPGRADE_REQUEST_RECEIVED: Shield,
+  UPGRADE_REQUEST_APPROVED: Shield,
+  UPGRADE_REQUEST_DENIED: Shield,
 };
 
 const N_ICON_STYLE: Record<string, string> = {
@@ -75,6 +81,16 @@ const N_ICON_STYLE: Record<string, string> = {
     'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400',
   PERMISSION_CHANGED:
     'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400',
+  INVITATION_ACCEPTED:
+    'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400',
+  INVITATION_DECLINED:
+    'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400',
+  UPGRADE_REQUEST_RECEIVED:
+    'bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-400',
+  UPGRADE_REQUEST_APPROVED:
+    'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400',
+  UPGRADE_REQUEST_DENIED:
+    'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400',
 };
 
 const N_ACCENT: Record<string, string> = {
@@ -83,6 +99,11 @@ const N_ACCENT: Record<string, string> = {
   MEMBER_JOINED:      'border-violet-400',
   INVITE_RECEIVED:    'border-amber-400',
   PERMISSION_CHANGED: 'border-rose-400',
+  INVITATION_ACCEPTED: 'border-emerald-400',
+  INVITATION_DECLINED: 'border-rose-400',
+  UPGRADE_REQUEST_RECEIVED: 'border-violet-400',
+  UPGRADE_REQUEST_APPROVED: 'border-emerald-400',
+  UPGRADE_REQUEST_DENIED: 'border-rose-400',
 };
 
 // ─── Sub-page definitions ─────────────────────────────────────────────────────
@@ -174,7 +195,8 @@ function Breadcrumb({ groups }: { groups?: GroupDto[] }) {
 
   const crumbs: string[] = [];
   if (!groupId) {
-    crumbs.push('Dashboard');
+    if (pathname === '/invitations') crumbs.push('Invitations');
+    else crumbs.push('Dashboard');
   } else {
     crumbs.push('My Groups');
     const group = groups?.find((g) => g.id === groupId);
@@ -454,6 +476,12 @@ export function AppLayout() {
     queryFn:  getMyGroups,
     staleTime: 30_000,
   });
+  const { data: invitations = [] } = useQuery({
+    queryKey: ['my-invitations'],
+    queryFn: getMyInvitations,
+    staleTime: 30_000,
+  });
+  const pendingInvitations = invitations.filter((item) => item.status === 'PENDING').length;
 
   // Detect active group from URL
   const { pathname } = useLocation();
@@ -540,6 +568,36 @@ export function AppLayout() {
             >
               <LayoutDashboard className="size-4 shrink-0" />
               {!collapsed && 'Dashboard'}
+            </NavLink>
+            <NavLink
+              to="/invitations"
+              title={collapsed ? 'Invitations' : undefined}
+              className={({ isActive }) =>
+                cn(
+                  'relative mt-1 flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                  collapsed && 'justify-center px-2',
+                )
+              }
+            >
+              <Mail className="size-4 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1">Invitations</span>
+                  {pendingInvitations > 0 && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                      {pendingInvitations}
+                    </span>
+                  )}
+                </>
+              )}
+              {collapsed && pendingInvitations > 0 && (
+                <span className="absolute ml-4 -mt-4 flex size-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-semibold text-white">
+                  {pendingInvitations > 9 ? '9+' : pendingInvitations}
+                </span>
+              )}
             </NavLink>
           </div>
 

@@ -28,7 +28,7 @@ export interface PagedResponse<T> {
 
 // ─── Group ────────────────────────────────────────────────────────────────────
 
-export type Permission = 'VIEW' | 'EDIT';
+export type Permission = 'VIEW' | 'EDIT' | 'ADMIN';
 
 export interface GroupMember {
   userId: string;
@@ -111,18 +111,35 @@ export interface Event {
 
 // ─── Invitation ───────────────────────────────────────────────────────────────
 
-export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED';
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CANCELLED';
 
 export interface Invitation {
   id: string;
   groupId: string;
+  groupName: string;
   invitedEmail: string;
   invitedBy: string;
+  invitedByName: string;
   permission: Permission;
   status: InvitationStatus;
   expiresAt: string;
   createdAt: string;
+  respondedAt?: string | null;
+  directLink?: string;
   acceptUrl?: string;
+  declineUrl?: string;
+}
+
+export interface InvitationAcceptResponse {
+  groupId: string;
+  groupName: string;
+  requiresAuth: boolean;
+  invitedEmail: string;
+  permission: Permission;
+}
+
+export interface InvitationDeclineResponse {
+  groupName: string;
 }
 
 // ─── Notification ─────────────────────────────────────────────────────────────
@@ -132,7 +149,12 @@ export type NotificationType =
   | 'EXPENSE_UPDATED'
   | 'MEMBER_JOINED'
   | 'INVITE_RECEIVED'
-  | 'PERMISSION_CHANGED';
+  | 'PERMISSION_CHANGED'
+  | 'INVITATION_ACCEPTED'
+  | 'INVITATION_DECLINED'
+  | 'UPGRADE_REQUEST_RECEIVED'
+  | 'UPGRADE_REQUEST_APPROVED'
+  | 'UPGRADE_REQUEST_DENIED';
 
 export interface Notification {
   id: string;

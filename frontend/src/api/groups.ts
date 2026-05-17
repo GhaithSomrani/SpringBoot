@@ -1,5 +1,5 @@
 import api from './axios';
-import type { ApiResponse, Permission } from '@/types';
+import type { ApiResponse, InvitationStatus, Permission } from '@/types';
 
 export interface GroupMemberDto {
   userId: string;
@@ -27,13 +27,18 @@ export interface ExpenseSummary {
 export interface InvitationResult {
   id: string;
   groupId: string;
+  groupName: string;
   invitedEmail: string;
   invitedBy: string;
+  invitedByName: string;
   permission: Permission;
-  status: 'PENDING' | 'ACCEPTED' | 'EXPIRED';
+  status: InvitationStatus;
   expiresAt: string;
   createdAt: string;
+  respondedAt?: string | null;
+  directLink?: string;
   acceptUrl: string;
+  declineUrl?: string;
 }
 
 export async function getMyGroups() {

@@ -116,7 +116,7 @@ export function ExpensesPage() {
     if (!group || !user) return false;
     if (group.ownerId === user.id) return true;
     const member = group.members.find((m) => m.userId === user.id);
-    return member?.permission === 'EDIT';
+    return member?.permission === 'EDIT' || member?.permission === 'ADMIN';
   }, [group, user]);
 
   // ── Resolve helpers ────────────────────────────────────────────────────────

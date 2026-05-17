@@ -107,6 +107,7 @@ public class InvitationService {
                     .groupName(invitation.getGroupName())
                     .requiresAuth(true)
                     .invitedEmail(invitation.getInvitedEmail())
+                    .permission(invitation.getPermission())
                     .build();
         }
 
@@ -156,6 +157,7 @@ public class InvitationService {
                 .groupName(invitation.getGroupName())
                 .requiresAuth(false)
                 .invitedEmail(invitation.getInvitedEmail())
+                .permission(invitation.getPermission())
                 .build();
     }
 

@@ -49,10 +49,13 @@ import { cn } from '@/lib/utils';
 const INVITE_STATUS: Record<string, { label: string; cls: string }> = {
   PENDING:  { label: 'Pending',  cls: 'bg-amber-100 text-amber-700 border-transparent' },
   ACCEPTED: { label: 'Accepted', cls: 'bg-emerald-100 text-emerald-700 border-transparent' },
+  DECLINED: { label: 'Declined', cls: 'bg-rose-100 text-rose-700 border-transparent' },
   EXPIRED:  { label: 'Expired',  cls: 'bg-muted text-muted-foreground border-transparent' },
+  CANCELLED:{ label: 'Cancelled', cls: 'bg-muted text-muted-foreground border-transparent' },
 };
 
 const PERM_BADGE_CLS: Record<Permission, string> = {
+  ADMIN: 'bg-violet-50 text-violet-700 border-violet-200',
   EDIT: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   VIEW: 'bg-blue-50 text-blue-700 border-blue-200',
 };
@@ -391,13 +394,18 @@ function MembersTab({
                 >
                   <option value="VIEW">View</option>
                   <option value="EDIT">Edit</option>
+                  <option value="ADMIN">Admin</option>
                 </select>
               ) : (
                 <Badge
                   variant="outline"
                   className={cn('text-xs shrink-0', PERM_BADGE_CLS[member.permission])}
                 >
-                  {member.permission === 'EDIT' ? 'Edit' : 'View'}
+                  {member.permission === 'ADMIN'
+                    ? 'Admin'
+                    : member.permission === 'EDIT'
+                      ? 'Edit'
+                      : 'View'}
                 </Badge>
               )}
 
@@ -715,7 +723,8 @@ export function GroupSettingsPage() {
 
   const isOwner = group.ownerId === user?.id;
   const canEdit =
-    isOwner || !!group.members.find((m) => m.userId === user?.id && m.permission === 'EDIT');
+    isOwner || !!group.members.find((m) =>
+      m.userId === user?.id && (m.permission === 'EDIT' || m.permission === 'ADMIN'));
 
   return (
     <div className="space-y-6 max-w-3xl">

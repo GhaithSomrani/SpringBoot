@@ -3,7 +3,9 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppLayout } from '@/components/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { RegisterPage } from '@/pages/RegisterPage';
-import { InvitePage } from '@/pages/InvitePage';
+import { InvitationAcceptPage } from '@/pages/InvitationAcceptPage';
+import { InvitationDeclinePage } from '@/pages/InvitationDeclinePage';
+import { InvitationsPage } from '@/pages/InvitationsPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { GroupPage } from '@/pages/GroupPage';
 import { ExpensesPage } from '@/pages/ExpensesPage';
@@ -17,11 +19,13 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        <Route path="/invite" element={<InvitePage />} />
+        <Route path="/invite/accept" element={<InvitationAcceptPage />} />
+        <Route path="/invite/decline" element={<InvitationDeclinePage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/invitations" element={<InvitationsPage />} />
             <Route path="/groups/:groupId" element={<GroupPage />} />
             <Route path="/groups/:groupId/expenses" element={<ExpensesPage />} />
             <Route path="/groups/:groupId/events" element={<EventsPage />} />

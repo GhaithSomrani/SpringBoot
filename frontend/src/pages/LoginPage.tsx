@@ -1,7 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import axios from 'axios';
 
@@ -28,6 +28,7 @@ type FormData = z.infer<typeof schema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth } = useAuth();
 
   const {
@@ -45,7 +46,7 @@ export function LoginPage() {
         email: auth.user.email,
         role: auth.user.role,
       });
-      navigate('/dashboard', { replace: true });
+      navigate(searchParams.get('redirect') || '/dashboard', { replace: true });
     } catch (err) {
       if (axios.isAxiosError(err) && err.response) {
         toast.error(err.response.data?.message ?? 'Login failed');
@@ -113,7 +114,12 @@ export function LoginPage() {
             </Button>
             <p className="text-sm text-muted-foreground text-center">
               Don&apos;t have an account?{' '}
-              <Link to="/register" className="text-foreground font-medium underline-offset-4 hover:underline">
+              <Link
+                to={searchParams.get('redirect')
+                  ? `/register?redirect=${encodeURIComponent(searchParams.get('redirect')!)}`
+                  : '/register'}
+                className="text-foreground font-medium underline-offset-4 hover:underline"
+              >
                 Create one
               </Link>
             </p>

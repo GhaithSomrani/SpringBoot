@@ -1,5 +1,6 @@
 package com.xbc.backend.dto.invitation;
 
+import com.xbc.backend.model.Group.Permission;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,4 +17,5 @@ public class InvitationAcceptResponse {
     private String groupName;
     private boolean requiresAuth;
     private String invitedEmail;
+    private Permission permission;
 }

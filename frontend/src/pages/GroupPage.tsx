@@ -229,6 +229,7 @@ function MemberRow({
         >
           <option value="VIEW">View</option>
           <option value="EDIT">Edit</option>
+          <option value="ADMIN">Admin</option>
         </select>
       ) : (
         <Badge variant="outline">{member.permission}</Badge>
@@ -286,7 +287,8 @@ export function GroupPage() {
 
   // canEdit covers owner + EDIT-permission members for categories
   const canEdit = isGroupOwner ||
-    !!group.members.find((m) => m.userId === user?.id && m.permission === 'EDIT');
+    !!group.members.find((m) =>
+      m.userId === user?.id && (m.permission === 'EDIT' || m.permission === 'ADMIN'));
 
   // Build owner row
   const ownerRow: GroupMemberDto & { isOwner?: boolean } = {

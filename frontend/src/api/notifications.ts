@@ -14,7 +14,3 @@ export async function markNotificationRead(id: string): Promise<NotificationItem
 export async function markAllNotificationsRead(): Promise<void> {
   await api.put('/api/notifications/read-all');
 }
-
-export async function acceptInvitation(token: string): Promise<void> {
-  await api.get('/api/invitations/accept', { params: { token } });
-}
