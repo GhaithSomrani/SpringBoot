@@ -3,6 +3,7 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppLayout } from '@/components/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { InvitePage } from '@/pages/InvitePage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { GroupPage } from '@/pages/GroupPage';
 import { ExpensesPage } from '@/pages/ExpensesPage';
@@ -15,6 +16,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/invite" element={<InvitePage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>

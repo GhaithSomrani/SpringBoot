@@ -32,6 +32,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { CategoriesTab } from '@/components/categories/CategoriesTab';
 
 // ─── Invite dialog ─────────────────────────────────────────────────────────────
 
@@ -171,7 +172,7 @@ function InviteDialog({
   );
 }
 
-// ─── Members list ──────────────────────────────────────────────────────────────
+// ─── Member row ────────────────────────────────────────────────────────────────
 
 function MemberRow({
   member,
@@ -223,9 +224,7 @@ function MemberRow({
         <select
           value={member.permission}
           disabled={permissionMutation.isPending}
-          onChange={(e) =>
-            permissionMutation.mutate(e.target.value as Permission)
-          }
+          onChange={(e) => permissionMutation.mutate(e.target.value as Permission)}
           className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
         >
           <option value="VIEW">View</option>
@@ -250,7 +249,7 @@ function MemberRow({
   );
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
+// ─── Page skeleton ─────────────────────────────────────────────────────────────
 
 function GroupPageSkeleton() {
   return (
@@ -268,6 +267,8 @@ function GroupPageSkeleton() {
   );
 }
 
+// ─── Page ──────────────────────────────────────────────────────────────────────
+
 export function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>();
   const { user } = useAuth();
@@ -283,7 +284,11 @@ export function GroupPage() {
 
   const isGroupOwner = group.ownerId === user?.id;
 
-  // Build member rows: owner first, then members
+  // canEdit covers owner + EDIT-permission members for categories
+  const canEdit = isGroupOwner ||
+    !!group.members.find((m) => m.userId === user?.id && m.permission === 'EDIT');
+
+  // Build owner row
   const ownerRow: GroupMemberDto & { isOwner?: boolean } = {
     userId: group.ownerId,
     email: user?.id === group.ownerId ? (user?.email ?? group.ownerId) : group.ownerId,
@@ -291,14 +296,9 @@ export function GroupPage() {
     joinedAt: group.createdAt,
     isOwner: true,
   };
-
-  // Find owner email from members list or fallback
   const ownerMember = group.members.find((m) => m.userId === group.ownerId);
-  if (ownerMember) {
-    ownerRow.email = ownerMember.email;
-  } else if (user?.id === group.ownerId) {
-    ownerRow.email = user.email;
-  }
+  if (ownerMember) ownerRow.email = ownerMember.email;
+  else if (user?.id === group.ownerId) ownerRow.email = user.email;
 
   const nonOwnerMembers = group.members.filter((m) => m.userId !== group.ownerId);
 
@@ -326,18 +326,18 @@ export function GroupPage() {
           <TabsTrigger value="members">
             Members ({group.members.length + 1})
           </TabsTrigger>
+          <TabsTrigger value="categories">Categories</TabsTrigger>
         </TabsList>
 
+        {/* Members tab */}
         <TabsContent value="members" className="mt-4">
           <div className="divide-y divide-border rounded-xl border border-border">
-            {/* Owner */}
             <MemberRow
               member={ownerRow}
               isOwner={true}
               canManage={false}
               groupId={groupId!}
             />
-            {/* Other members */}
             {nonOwnerMembers.map((member) => (
               <MemberRow
                 key={member.userId}
@@ -353,6 +353,11 @@ export function GroupPage() {
               </div>
             )}
           </div>
+        </TabsContent>
+
+        {/* Categories tab */}
+        <TabsContent value="categories" className="mt-4">
+          <CategoriesTab groupId={groupId!} canEdit={canEdit} />
         </TabsContent>
       </Tabs>
 
