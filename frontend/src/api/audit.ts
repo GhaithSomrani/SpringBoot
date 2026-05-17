@@ -21,6 +21,7 @@ export interface AuditLogDto {
 
 export interface AuditFilters {
   entityType?: AuditEntityType;
+  entityId?: string;
   action?: AuditAction;
   userId?: string;
   dateFrom?: string; // ISO instant
@@ -44,6 +45,7 @@ export async function getAuditLogs(
 ): Promise<PagedAuditLogs> {
   const params: Record<string, string | number> = { page, size };
   if (filters.entityType) params.entityType = filters.entityType;
+  if (filters.entityId)   params.entityId = filters.entityId;
   if (filters.action)     params.action = filters.action;
   if (filters.userId)     params.userId = filters.userId;
   if (filters.dateFrom)   params.dateFrom = filters.dateFrom;

@@ -53,6 +53,11 @@ export interface CreateExpensePayload {
   attachments?: string[]; // preferred multi-file
 }
 
+export async function getExpense(groupId: string, expenseId: string): Promise<ExpenseDto> {
+  const res = await api.get<{ data: ExpenseDto }>(`/api/groups/${groupId}/expenses/${expenseId}`);
+  return res.data.data;
+}
+
 export async function getExpenses(
   groupId: string,
   filters: ExpenseFilters,
