@@ -32,6 +32,6 @@ public class Group extends BaseEntity {
     }
 
     public enum Permission {
-        VIEW, EDIT
+        VIEW, EDIT, ADMIN
     }
 }

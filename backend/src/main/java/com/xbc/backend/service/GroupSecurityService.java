@@ -35,7 +35,19 @@ public class GroupSecurityService {
                 .map(g -> g.getOwnerId().equals(userId) ||
                         g.getMembers().stream().anyMatch(m ->
                                 m.getUserId().equals(userId) &&
-                                m.getPermission() == Group.Permission.EDIT))
+                                (m.getPermission() == Group.Permission.EDIT ||
+                                 m.getPermission() == Group.Permission.ADMIN)))
+                .orElse(false);
+    }
+
+    /** True if the current user is the owner or a member with ADMIN permission. */
+    public boolean hasAdminAccess(String groupId) {
+        String userId = getCurrentUserId();
+        return groupRepository.findById(groupId)
+                .map(g -> g.getOwnerId().equals(userId) ||
+                        g.getMembers().stream().anyMatch(m ->
+                                m.getUserId().equals(userId) &&
+                                m.getPermission() == Group.Permission.ADMIN))
                 .orElse(false);
     }
 
