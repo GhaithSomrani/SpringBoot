@@ -8,9 +8,11 @@ export interface ExpenseDto {
   currency: string;
   categoryId: string;
   subcategoryId?: string;
+  eventId?: string;
   date: string; // ISO date string
   description?: string;
-  fileId?: string;
+  fileId?: string;        // legacy single-file field
+  attachments?: string[]; // preferred multi-file array of fileIds
   addedBy: string; // userId
   createdAt: string;
   updatedAt: string;
@@ -44,9 +46,11 @@ export interface CreateExpensePayload {
   currency: string;
   categoryId: string;
   subcategoryId?: string;
+  eventId?: string;
   date: string;
   description?: string;
-  fileId?: string;
+  fileId?: string;        // legacy
+  attachments?: string[]; // preferred multi-file
 }
 
 export async function getExpenses(

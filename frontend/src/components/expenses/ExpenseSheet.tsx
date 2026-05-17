@@ -1,61 +1,173 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import { format } from 'date-fns';
-import { CalendarIcon, Paperclip, X, Loader2 } from 'lucide-react';
+import {
+  CalendarIcon, File, FileText, Loader2, Upload, X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
 
 import type { CategoryDto } from '@/api/categories';
+import { getCategories } from '@/api/categories';
+import { getEvents } from '@/api/events';
 import type { ExpenseDto, CreateExpensePayload } from '@/api/expenses';
 import { createExpense, updateExpense } from '@/api/expenses';
-import { uploadFile } from '@/api/files';
+import { uploadFileWithProgress, deleteFile } from '@/api/files';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+  SheetDescription, SheetFooter,
 } from '@/components/ui/sheet';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const CURRENCIES = ['USD', 'EUR', 'TND', 'GBP', 'MAD'] as const;
+type Currency = (typeof CURRENCIES)[number];
+
+const CURRENCY_SYMBOL: Record<Currency, string> = {
+  USD: '$', EUR: '€', GBP: '£', TND: 'DT', MAD: 'MAD',
+};
+
+const MAX_FILES    = 5;
+const MAX_SIZE     = 10 * 1024 * 1024; // 10 MB
+const ACCEPT_TYPES = { 'image/*': [], 'application/pdf': ['.pdf'] };
+
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-const expenseSchema = z.object({
-  title: z.string().min(1, 'Title is required').max(200),
-  amount: z.coerce.number({ invalid_type_error: 'Must be a number' }).positive('Must be positive'),
-  currency: z.string().length(3, 'Must be 3 letters (e.g. USD)').toUpperCase(),
-  categoryId: z.string().min(1, 'Category is required'),
+const schema = z.object({
+  title:         z.string().min(2, 'Minimum 2 characters').max(200, 'Too long'),
+  amount:        z.coerce
+                   .number({ invalid_type_error: 'Enter a number' })
+                   .positive('Must be positive')
+                   .multipleOf(0.01, 'Max 2 decimal places'),
+  currency:      z.enum(CURRENCIES),
+  categoryId:    z.string().min(1, 'Category is required'),
   subcategoryId: z.string().optional(),
-  date: z.date({ required_error: 'Date is required' }),
-  description: z.string().max(1000).optional(),
+  eventId:       z.string().optional(),
+  date:          z.date({ required_error: 'Date is required' }),
+  description:   z.string().max(500, 'Max 500 characters').optional(),
 });
 
-type ExpenseForm = z.infer<typeof expenseSchema>;
+type FormValues = z.infer<typeof schema>;
 
-// ─── File upload state ─────────────────────────────────────────────────────────
+// ─── File entry state ─────────────────────────────────────────────────────────
 
-interface AttachedFile {
-  fileId: string;
+interface FileEntry {
+  uid: string;
+  fileId?: string;
   filename: string;
+  contentType?: string;
+  size?: number;
+  progress: number;
+  status: 'uploading' | 'done' | 'error';
+  previewUrl?: string;
+  errorMsg?: string;
+}
+
+function formatBytes(b: number) {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileIsImage(entry: FileEntry) {
+  if (entry.contentType?.startsWith('image/')) return true;
+  const ext = entry.filename.split('.').pop()?.toLowerCase();
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'].includes(ext ?? '');
+}
+
+function fileIsPdf(entry: FileEntry) {
+  return entry.contentType === 'application/pdf' || entry.filename.toLowerCase().endsWith('.pdf');
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function FilePreview({ entry }: { entry: FileEntry }) {
+  if (fileIsImage(entry) && entry.previewUrl) {
+    return (
+      <img
+        src={entry.previewUrl}
+        alt={entry.filename}
+        className="size-full object-cover"
+      />
+    );
+  }
+  if (fileIsPdf(entry)) {
+    return <FileText className="size-5 text-red-400" />;
+  }
+  return <File className="size-5 text-muted-foreground" />;
+}
+
+function FileRow({
+  entry,
+  onRemove,
+}: {
+  entry: FileEntry;
+  onRemove: (uid: string) => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border p-2.5">
+      {/* Thumbnail */}
+      <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+        <FilePreview entry={entry} />
+      </div>
+
+      {/* Info */}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{entry.filename}</p>
+        {entry.size != null && (
+          <p className="text-[11px] text-muted-foreground">{formatBytes(entry.size)}</p>
+        )}
+
+        {entry.status === 'uploading' && (
+          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-150"
+              style={{ width: `${entry.progress}%` }}
+            />
+          </div>
+        )}
+
+        {entry.status === 'done' && (
+          <p className="text-[11px] text-emerald-600 dark:text-emerald-400">Uploaded</p>
+        )}
+
+        {entry.status === 'error' && (
+          <p className="text-[11px] text-destructive">{entry.errorMsg ?? 'Upload failed'}</p>
+        )}
+      </div>
+
+      {/* Remove */}
+      <button
+        type="button"
+        onClick={() => onRemove(entry.uid)}
+        disabled={entry.status === 'uploading'}
+        className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-40"
+        aria-label={`Remove ${entry.filename}`}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-interface ExpenseSheetProps {
+export interface ExpenseSheetProps {
   groupId: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  categories: CategoryDto[];
+  /** Optional: passed as initialData to the categories query */
+  categories?: CategoryDto[];
   editingExpense?: ExpenseDto | null;
 }
 
@@ -65,233 +177,408 @@ export function ExpenseSheet({
   groupId,
   open,
   onOpenChange,
-  categories,
+  categories: categoriesProp,
   editingExpense,
 }: ExpenseSheetProps) {
-  const queryClient = useQueryClient();
+  const qc       = useQueryClient();
   const isEditing = !!editingExpense;
 
-  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  // ── File entries ────────────────────────────────────────────────────────────
+  const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
+  const fileEntriesRef = useRef<FileEntry[]>([]);
+  fileEntriesRef.current = fileEntries;
 
+  // ── Form ────────────────────────────────────────────────────────────────────
   const {
-    register,
-    handleSubmit,
-    control,
-    watch,
-    reset,
-    setValue,
+    register, handleSubmit, control, watch, reset, setError,
     formState: { errors, isSubmitting },
-  } = useForm<ExpenseForm>({
-    resolver: zodResolver(expenseSchema),
-    defaultValues: { currency: 'USD' },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { currency: 'USD', date: new Date() },
   });
 
-  const watchedCategoryId = watch('categoryId');
+  const watchedCategoryId  = watch('categoryId');
+  const watchedCurrency    = watch('currency') as Currency;
+  const watchedDescription = watch('description') ?? '';
+
+  // ── Data queries ────────────────────────────────────────────────────────────
+  const { data: categories = [] } = useQuery({
+    queryKey:    ['categories', groupId],
+    queryFn:     () => getCategories(groupId),
+    initialData: categoriesProp,
+    enabled:     open,
+  });
+
+  const { data: events = [] } = useQuery({
+    queryKey: ['events', groupId],
+    queryFn:  () => getEvents(groupId),
+    enabled:  open,
+    select:   (evts) => evts.filter((e) => e.status === 'ACTIVE' || e.status === 'UPCOMING'),
+  });
+
   const selectedCategory = categories.find((c) => c.id === watchedCategoryId);
 
-  // Pre-fill when editing
+  // ── Open / edit effects ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (open && editingExpense) {
-      reset({
-        title: editingExpense.title,
-        amount: editingExpense.amount,
-        currency: editingExpense.currency,
-        categoryId: editingExpense.categoryId,
-        subcategoryId: editingExpense.subcategoryId ?? '',
-        date: new Date(editingExpense.date),
-        description: editingExpense.description ?? '',
+    if (!open) {
+      // Cleanup object URLs
+      fileEntriesRef.current.forEach((e) => {
+        if (e.previewUrl) URL.revokeObjectURL(e.previewUrl);
       });
-      if (editingExpense.fileId) {
-        setAttachedFile({ fileId: editingExpense.fileId, filename: 'Attached file' });
-      }
-    } else if (open && !editingExpense) {
-      reset({ currency: 'USD' });
-      setAttachedFile(null);
+      setFileEntries([]);
+      reset({ currency: 'USD', date: new Date() });
+      return;
+    }
+
+    if (editingExpense) {
+      reset({
+        title:         editingExpense.title,
+        amount:        editingExpense.amount,
+        currency:      (editingExpense.currency as Currency) ?? 'USD',
+        categoryId:    editingExpense.categoryId,
+        subcategoryId: editingExpense.subcategoryId ?? '',
+        eventId:       editingExpense.eventId ?? '',
+        date:          new Date(editingExpense.date),
+        description:   editingExpense.description ?? '',
+      });
+
+      // Build file entries from existing attachments
+      const ids = editingExpense.attachments?.length
+        ? editingExpense.attachments
+        : editingExpense.fileId
+          ? [editingExpense.fileId]
+          : [];
+
+      setFileEntries(
+        ids.map((fileId, i) => ({
+          uid:      fileId,
+          fileId,
+          filename: `Attachment ${i + 1}`,
+          progress: 100,
+          status:   'done' as const,
+        })),
+      );
+    } else {
+      reset({ currency: 'USD', date: new Date() });
+      setFileEntries([]);
     }
   }, [open, editingExpense, reset]);
 
-  // Reset subcategory when category changes
+  // Reset subcategory when category changes (only in create mode)
+  const prevCategoryRef = useRef<string>();
   useEffect(() => {
-    setValue('subcategoryId', '');
-  }, [watchedCategoryId, setValue]);
-
-  function handleClose(v: boolean) {
-    if (!v) {
-      reset({ currency: 'USD' });
-      setAttachedFile(null);
+    if (prevCategoryRef.current !== undefined && prevCategoryRef.current !== watchedCategoryId) {
+      reset((vals) => ({ ...vals, subcategoryId: '' }));
     }
-    onOpenChange(v);
-  }
+    prevCategoryRef.current = watchedCategoryId;
+  }, [watchedCategoryId, reset]);
 
-  // Dropzone
-  const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
-      const file = acceptedFiles[0];
-      if (!file) return;
-      setUploading(true);
-      try {
-        const uploaded = await uploadFile(file, groupId);
-        setAttachedFile({ fileId: uploaded.fileId, filename: uploaded.filename });
-        toast.success(`${uploaded.filename} uploaded`);
-      } catch {
-        toast.error('File upload failed');
-      } finally {
-        setUploading(false);
-      }
+  // ── File drop handling ──────────────────────────────────────────────────────
+  const handleDrop = useCallback(
+    async (accepted: File[]) => {
+      const current   = fileEntriesRef.current.filter((e) => e.status !== 'error');
+      const remaining = MAX_FILES - current.length;
+      if (remaining <= 0) return;
+      const toProcess = accepted.slice(0, remaining);
+
+      const newEntries: FileEntry[] = toProcess.map((f) => ({
+        uid:         crypto.randomUUID(),
+        filename:    f.name,
+        contentType: f.type,
+        size:        f.size,
+        progress:    0,
+        status:      'uploading' as const,
+        previewUrl:  f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+      }));
+
+      setFileEntries((prev) => [...prev, ...newEntries]);
+
+      await Promise.all(
+        toProcess.map(async (f, i) => {
+          const { uid } = newEntries[i];
+          try {
+            const uploaded = await uploadFileWithProgress(f, groupId, (pct) => {
+              setFileEntries((prev) =>
+                prev.map((e) => (e.uid === uid ? { ...e, progress: pct } : e)),
+              );
+            });
+            setFileEntries((prev) =>
+              prev.map((e) =>
+                e.uid === uid
+                  ? { ...e, status: 'done', fileId: uploaded.fileId, progress: 100 }
+                  : e,
+              ),
+            );
+          } catch {
+            setFileEntries((prev) =>
+              prev.map((e) =>
+                e.uid === uid ? { ...e, status: 'error', errorMsg: 'Upload failed' } : e,
+              ),
+            );
+          }
+        }),
+      );
     },
     [groupId],
   );
 
+  const doneCount = fileEntries.filter((e) => e.status !== 'error').length;
+  const anyUploading = fileEntries.some((e) => e.status === 'uploading');
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    maxFiles: 1,
-    disabled: uploading,
+    onDrop: handleDrop,
+    accept: ACCEPT_TYPES,
+    maxSize: MAX_SIZE,
+    disabled: doneCount >= MAX_FILES,
+    onDropRejected: (rejections) => {
+      rejections.forEach((r) => {
+        r.errors.forEach((err) => {
+          if (err.code === 'file-too-large')
+            toast.error(`${r.file.name}: exceeds 10 MB`);
+          else if (err.code === 'too-many-files')
+            toast.error('Max 5 files allowed');
+          else
+            toast.error(`${r.file.name}: ${err.message}`);
+        });
+      });
+    },
   });
 
-  // Mutations
-  const saveMutation = useMutation({
+  async function removeFile(uid: string) {
+    const entry = fileEntriesRef.current.find((e) => e.uid === uid);
+    if (!entry) return;
+    if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+    setFileEntries((prev) => prev.filter((e) => e.uid !== uid));
+    if (entry.fileId) {
+      try { await deleteFile(entry.fileId); } catch { /* best-effort */ }
+    }
+  }
+
+  // ── Submit ──────────────────────────────────────────────────────────────────
+  const saveMut = useMutation({
     mutationFn: (payload: CreateExpensePayload) =>
       isEditing
         ? updateExpense(groupId, editingExpense!.id, payload)
         : createExpense(groupId, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['expenses', 'summary', groupId] });
+      qc.invalidateQueries({ queryKey: ['expenses', groupId] });
+      qc.invalidateQueries({ queryKey: ['summary', groupId] });
       toast.success(isEditing ? 'Expense updated' : 'Expense added');
-      handleClose(false);
+      onOpenChange(false);
     },
     onError: (err) => {
-      const msg =
-        axios.isAxiosError(err) && err.response
-          ? (err.response.data?.message ?? 'Failed to save expense')
-          : 'Something went wrong';
-      toast.error(msg);
+      if (axios.isAxiosError(err) && err.response?.status === 400) {
+        const body = err.response.data as {
+          message?: string;
+          errors?: Record<string, string>;
+        };
+        const fieldErrors = body?.errors;
+        if (fieldErrors && Object.keys(fieldErrors).length > 0) {
+          Object.entries(fieldErrors).forEach(([field, msg]) => {
+            setError(field as keyof FormValues, { message: msg });
+          });
+        } else {
+          toast.error(body?.message ?? 'Validation failed');
+        }
+      } else {
+        toast.error('Something went wrong');
+      }
     },
   });
 
-  function onSubmit(data: ExpenseForm) {
-    const payload: CreateExpensePayload = {
-      title: data.title,
-      amount: data.amount,
-      currency: data.currency,
-      categoryId: data.categoryId,
+  function onSubmit(data: FormValues) {
+    const attachments = fileEntries
+      .filter((e) => e.status === 'done' && e.fileId)
+      .map((e) => e.fileId!);
+
+    saveMut.mutate({
+      title:         data.title,
+      amount:        data.amount,
+      currency:      data.currency,
+      categoryId:    data.categoryId,
       subcategoryId: data.subcategoryId || undefined,
-      date: format(data.date, 'yyyy-MM-dd'),
-      description: data.description || undefined,
-      fileId: attachedFile?.fileId,
-    };
-    saveMutation.mutate(payload);
+      eventId:       data.eventId || undefined,
+      date:          format(data.date, 'yyyy-MM-dd'),
+      description:   data.description || undefined,
+      attachments,
+    });
   }
 
-  const isPending = isSubmitting || saveMutation.isPending;
+  const isPending = isSubmitting || saveMut.isPending;
+  const currSymbol = CURRENCY_SYMBOL[watchedCurrency] ?? watchedCurrency;
+  const prefixWide = currSymbol.length > 1;
 
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent className="flex flex-col gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="border-b border-border px-6 py-4">
-          <SheetTitle>{isEditing ? 'Edit expense' : 'Add expense'}</SheetTitle>
-          <SheetDescription>
-            {isEditing ? 'Update the details below.' : 'Fill in the details for the new expense.'}
-          </SheetDescription>
+    <Sheet open={open} onOpenChange={(v) => { if (!isPending) onOpenChange(v); }}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="flex flex-col gap-0 p-0 sm:max-w-[480px]"
+      >
+        {/* Header */}
+        <SheetHeader className="flex-row items-start justify-between gap-2 border-b border-border px-6 py-4">
+          <div>
+            <SheetTitle>{isEditing ? 'Edit expense' : 'Add expense'}</SheetTitle>
+            <SheetDescription>
+              {isEditing
+                ? 'Update the fields below and save.'
+                : 'Fill in the details for the new expense.'}
+            </SheetDescription>
+          </div>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="mt-0.5 shrink-0 text-muted-foreground"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+            aria-label="Close"
+          >
+            <X className="size-4" />
+          </Button>
         </SheetHeader>
 
+        {/* Scrollable form */}
         <form
           id="expense-form"
           onSubmit={handleSubmit(onSubmit)}
           noValidate
-          className="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+          className="flex-1 space-y-5 overflow-y-auto px-6 py-5"
         >
           {/* Title */}
           <div className="space-y-1.5">
-            <Label htmlFor="expense-title">Title</Label>
+            <Label htmlFor="ef-title">
+              Title <span className="text-destructive">*</span>
+            </Label>
             <Input
-              id="expense-title"
-              placeholder="Dinner, Hotel, Flight…"
+              id="ef-title"
+              placeholder="Dinner, Hotel, Groceries…"
               aria-invalid={!!errors.title}
               {...register('title')}
             />
-            {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
+            {errors.title && (
+              <p className="text-xs text-destructive">{errors.title.message}</p>
+            )}
           </div>
 
           {/* Amount + Currency */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-[1fr_auto] gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="expense-amount">Amount</Label>
-              <Input
-                id="expense-amount"
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0.00"
-                aria-invalid={!!errors.amount}
-                {...register('amount')}
-              />
-              {errors.amount && <p className="text-xs text-destructive">{errors.amount.message}</p>}
+              <Label htmlFor="ef-amount">
+                Amount <span className="text-destructive">*</span>
+              </Label>
+              <div className="relative">
+                <span
+                  className={cn(
+                    'pointer-events-none absolute inset-y-0 left-0 flex items-center text-sm text-muted-foreground',
+                    prefixWide ? 'pl-2.5' : 'pl-3',
+                  )}
+                >
+                  {currSymbol}
+                </span>
+                <Input
+                  id="ef-amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  aria-invalid={!!errors.amount}
+                  className={prefixWide ? 'pl-10' : 'pl-7'}
+                  {...register('amount')}
+                />
+              </div>
+              {errors.amount && (
+                <p className="text-xs text-destructive">{errors.amount.message}</p>
+              )}
             </div>
+
             <div className="space-y-1.5">
-              <Label htmlFor="expense-currency">Currency</Label>
-              <Input
-                id="expense-currency"
-                placeholder="USD"
-                maxLength={3}
-                aria-invalid={!!errors.currency}
+              <Label htmlFor="ef-currency">Currency</Label>
+              <select
+                id="ef-currency"
+                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 {...register('currency')}
-              />
-              {errors.currency && <p className="text-xs text-destructive">{errors.currency.message}</p>}
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </div>
           </div>
 
           {/* Category */}
           <div className="space-y-1.5">
-            <Label htmlFor="expense-category">Category</Label>
+            <Label htmlFor="ef-category">
+              Category <span className="text-destructive">*</span>
+            </Label>
             <select
-              id="expense-category"
+              id="ef-category"
               className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               aria-invalid={!!errors.categoryId}
               {...register('categoryId')}
             >
               <option value="">Select a category</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            {errors.categoryId && <p className="text-xs text-destructive">{errors.categoryId.message}</p>}
+            {errors.categoryId && (
+              <p className="text-xs text-destructive">{errors.categoryId.message}</p>
+            )}
           </div>
 
-          {/* Subcategory (only if category has subcategories) */}
+          {/* Subcategory — only if selected category has subs */}
           {selectedCategory && selectedCategory.subcategories.length > 0 && (
             <div className="space-y-1.5">
-              <Label htmlFor="expense-subcategory">
+              <Label htmlFor="ef-sub">
                 Subcategory{' '}
-                <span className="text-muted-foreground font-normal">(optional)</span>
+                <span className="font-normal text-muted-foreground">(optional)</span>
               </Label>
               <select
-                id="expense-subcategory"
-                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50"
+                id="ef-sub"
+                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 {...register('subcategoryId')}
               >
                 <option value="">None</option>
-                {selectedCategory.subcategories.map((sub) => (
-                  <option key={sub.id} value={sub.id}>
-                    {sub.name}
-                  </option>
+                {selectedCategory.subcategories.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* Date picker */}
+          {/* Event */}
           <div className="space-y-1.5">
-            <Label>Date</Label>
+            <Label htmlFor="ef-event">
+              Event{' '}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <select
+              id="ef-event"
+              className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              {...register('eventId')}
+            >
+              <option value="">No event</option>
+              {events.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.title}
+                  {e.status === 'UPCOMING' ? ' (upcoming)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date */}
+          <div className="space-y-1.5">
+            <Label>
+              Date <span className="text-destructive">*</span>
+            </Label>
             <Controller
               control={control}
               name="date"
               render={({ field }) => (
-                <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <Popover>
                   <PopoverTrigger
                     render={
                       <Button
@@ -304,86 +591,130 @@ export function ExpenseSheet({
                       />
                     }
                   >
-                    <CalendarIcon className="mr-2 size-3.5" />
+                    <CalendarIcon className="mr-2 size-3.5 shrink-0" />
                     {field.value ? format(field.value, 'PPP') : 'Pick a date'}
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
                     <Calendar
                       mode="single"
                       selected={field.value}
-                      onSelect={(day) => {
-                        field.onChange(day);
-                        setCalendarOpen(false);
-                      }}
+                      onSelect={(day) => day && field.onChange(day)}
                     />
                   </PopoverContent>
                 </Popover>
               )}
             />
-            {errors.date && <p className="text-xs text-destructive">{errors.date.message}</p>}
+            {errors.date && (
+              <p className="text-xs text-destructive">{errors.date.message}</p>
+            )}
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-            <Label htmlFor="expense-desc">
-              Description{' '}
-              <span className="text-muted-foreground font-normal">(optional)</span>
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="ef-desc">
+                Description{' '}
+                <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <span
+                className={cn(
+                  'text-[11px] tabular-nums',
+                  watchedDescription.length > 450
+                    ? 'text-destructive'
+                    : 'text-muted-foreground',
+                )}
+              >
+                {watchedDescription.length}/500
+              </span>
+            </div>
             <textarea
-              id="expense-desc"
+              id="ef-desc"
               rows={3}
               placeholder="Any extra details…"
-              className="w-full resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-invalid={!!errors.description}
+              className="w-full resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive"
               {...register('description')}
             />
+            {errors.description && (
+              <p className="text-xs text-destructive">{errors.description.message}</p>
+            )}
           </div>
 
-          {/* File upload */}
-          <div className="space-y-1.5">
-            <Label>Attachment <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            {attachedFile ? (
-              <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-                <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate text-foreground">{attachedFile.filename}</span>
-                <button
-                  type="button"
-                  onClick={() => setAttachedFile(null)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <X className="size-3.5" />
-                </button>
+          {/* Attachments */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>
+                Attachments{' '}
+                <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <span className="text-[11px] text-muted-foreground">
+                {doneCount}/{MAX_FILES}
+              </span>
+            </div>
+
+            {/* Existing / newly uploaded files */}
+            {fileEntries.length > 0 && (
+              <div className="space-y-2">
+                {fileEntries.map((entry) => (
+                  <FileRow key={entry.uid} entry={entry} onRemove={removeFile} />
+                ))}
               </div>
-            ) : (
+            )}
+
+            {/* Drop zone — hidden once limit reached */}
+            {doneCount < MAX_FILES && (
               <div
                 {...getRootProps()}
                 className={cn(
-                  'cursor-pointer rounded-lg border-2 border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground transition-colors hover:border-ring hover:text-foreground',
-                  isDragActive && 'border-ring bg-muted/30 text-foreground',
-                  uploading && 'pointer-events-none opacity-60',
+                  'cursor-pointer rounded-lg border-2 border-dashed border-border p-4 text-center transition-colors hover:border-ring/60 hover:bg-muted/30',
+                  isDragActive && 'border-primary bg-primary/5',
                 )}
               >
                 <input {...getInputProps()} />
-                {uploading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    Uploading…
-                  </span>
-                ) : isDragActive ? (
-                  'Drop the file here'
-                ) : (
-                  'Drag & drop a file, or click to select'
-                )}
+                <Upload className="mx-auto mb-1.5 size-5 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  {isDragActive
+                    ? 'Drop files here'
+                    : 'Drag & drop files, or click to browse'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Images and PDFs · max {MAX_FILES} files · 10 MB each
+                </p>
               </div>
             )}
           </div>
         </form>
 
-        <SheetFooter className="border-t border-border px-6 py-4">
-          <Button variant="outline" type="button" onClick={() => handleClose(false)}>
+        {/* Footer */}
+        <SheetFooter className="flex-row justify-end gap-2 border-t border-border px-6 py-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+          >
             Cancel
           </Button>
-          <Button form="expense-form" type="submit" disabled={isPending || uploading}>
-            {isPending ? 'Saving…' : isEditing ? 'Save changes' : 'Add expense'}
+          <Button
+            form="expense-form"
+            type="submit"
+            disabled={isPending || anyUploading}
+          >
+            {isPending ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                Saving…
+              </>
+            ) : anyUploading ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                Uploading…
+              </>
+            ) : isEditing ? (
+              'Save changes'
+            ) : (
+              'Add expense'
+            )}
           </Button>
         </SheetFooter>
       </SheetContent>
