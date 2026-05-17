@@ -24,13 +24,19 @@
       <h1>You've been invited!</h1>
     </div>
     <div class="body">
-      <p>You have been invited to join the group <strong th:text="${groupName}">Group Name</strong> on Expense Tracker.</p>
-      <p>Click the button below to accept the invitation and join the group. This link will expire in <strong th:text="${expiryHours}">48</strong> hours.</p>
+      <p><strong th:text="${invitedByName}">A teammate</strong> invited you to join the group <strong th:text="${groupName}">Group Name</strong> on Expense Tracker.</p>
+      <p>Your access level will be <strong th:text="${permission}">VIEW</strong>.</p>
+      <p>Use one of the options below. This invitation expires in <strong th:text="${expiryHours}">48</strong> hours.</p>
       <div class="btn-wrap">
         <a th:href="${acceptUrl}" class="btn">Accept Invitation</a>
       </div>
+      <div class="btn-wrap">
+        <a th:href="${declineUrl}" class="btn" style="background-color: #64748b;">Decline Invitation</a>
+      </div>
       <p class="note">If the button doesn't work, copy and paste this link into your browser:</p>
       <p class="url-fallback" th:text="${acceptUrl}">https://example.com/accept</p>
+      <p class="note">Decline link:</p>
+      <p class="url-fallback" th:text="${declineUrl}">https://example.com/decline</p>
       <p class="note">If you did not expect this invitation, you can safely ignore this email.</p>
     </div>
     <div class="footer">

@@ -23,4 +23,7 @@ public class InvitationDto {
     private Instant expiresAt;
     private Instant createdAt;
     private Instant respondedAt;
+    private String directLink;
+    private String acceptUrl;
+    private String declineUrl;
 }

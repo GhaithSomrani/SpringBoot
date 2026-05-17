@@ -1,8 +1,11 @@
 package com.xbc.backend.service;
 
 import com.xbc.backend.dto.invitation.CreateInvitationRequest;
+import com.xbc.backend.dto.invitation.InvitationAcceptResponse;
+import com.xbc.backend.dto.invitation.InvitationDeclineResponse;
 import com.xbc.backend.dto.invitation.InvitationDto;
-import com.xbc.backend.dto.invitation.InvitationResponse;
+import com.xbc.backend.exception.AlreadyMemberException;
+import com.xbc.backend.exception.DuplicateInvitationException;
 import com.xbc.backend.exception.ForbiddenException;
 import com.xbc.backend.exception.ResourceNotFoundException;
 import com.xbc.backend.model.AuditLog;
@@ -19,12 +22,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -43,8 +50,8 @@ public class InvitationService {
     private final AuditService auditService;
     private final NotificationService notificationService;
 
-    @Value("${app.base-url}")
-    private String baseUrl;
+    @Value("${frontend.url}")
+    private String frontendUrl;
 
     @Value("${spring.mail.username}")
     private String fromEmail;
@@ -67,48 +74,18 @@ public class InvitationService {
         this.notificationService = notificationService;
     }
 
-    public InvitationResponse sendInvitation(String groupId, CreateInvitationRequest req) {
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new ResourceNotFoundException("Group", "id", groupId));
+    public InvitationDto sendInvitation(String groupId, CreateInvitationRequest req) {
+        Group group = findGroup(groupId);
+        requireEditAccess(groupId);
 
-        if (!groupSecurityService.hasEditAccess(groupId)) {
-            throw new ForbiddenException("You need edit access to invite members");
-        }
+        String normalizedEmail = req.getEmail().trim().toLowerCase();
+        assertNotMember(group, normalizedEmail);
+        assertNoPendingInvite(groupId, normalizedEmail);
 
-        if (invitationRepository.existsByGroupIdAndInvitedEmailAndStatus(
-                groupId, req.getEmail(), Invitation.Status.PENDING)) {
-            throw new IllegalArgumentException("A pending invitation already exists for this email");
-        }
+        User inviter = findUser(groupSecurityService.getCurrentUserId());
+        Invitation saved = createAndDispatchInvitation(group, inviter, normalizedEmail, req.getPermission());
 
-        String inviterId = groupSecurityService.getCurrentUserId();
-        User inviter = userRepository.findById(inviterId)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
-        String token = UUID.randomUUID().toString();
-        Instant expiresAt = Instant.now().plus(EXPIRY_HOURS, ChronoUnit.HOURS);
-
-        Invitation invitation = Invitation.builder()
-                .groupId(groupId)
-                .groupName(group.getName())
-                .invitedEmail(req.getEmail())
-                .invitedBy(inviterId)
-                .invitedByName(inviter.getUsername())
-                .token(token)
-                .permission(req.getPermission())
-                .status(Invitation.Status.PENDING)
-                .expiresAt(expiresAt)
-                .build();
-
-        Invitation saved = invitationRepository.save(invitation);
-        String acceptUrl = baseUrl + "/api/invitations/accept?token=" + token;
-
-        try {
-            sendEmail(req.getEmail(), group.getName(), acceptUrl);
-        } catch (Exception e) {
-            // Email failure should not roll back the invitation record
-        }
-
-        // Notify the invited user if they already have an account
-        userRepository.findByEmail(req.getEmail()).ifPresent(invitedUser ->
+        userRepository.findByEmail(normalizedEmail).ifPresent(invitedUser ->
                 notificationService.send(
                         invitedUser.getId(),
                         Notification.Type.INVITE_RECEIVED,
@@ -116,101 +93,97 @@ public class InvitationService {
                         "You've been invited to join " + group.getName(),
                         saved.getId()));
 
-        return toResponse(saved, acceptUrl);
+        return toDto(saved);
     }
 
-    public void acceptInvitation(String token) {
-        Invitation invitation = invitationRepository.findByToken(token)
-                .orElseThrow(() -> new ResourceNotFoundException("Invitation", "token", token));
+    public InvitationAcceptResponse acceptInvitation(String token) {
+        Invitation invitation = findByToken(token);
+        validateInvitationForAction(invitation);
 
-        if (invitation.getStatus() != Invitation.Status.PENDING) {
-            throw new IllegalArgumentException("Invitation is no longer valid");
+        User currentUser = getAuthenticatedUserOrNull();
+        if (currentUser == null) {
+            return InvitationAcceptResponse.builder()
+                    .groupId(invitation.getGroupId())
+                    .groupName(invitation.getGroupName())
+                    .requiresAuth(true)
+                    .invitedEmail(invitation.getInvitedEmail())
+                    .build();
         }
-
-        if (Instant.now().isAfter(invitation.getExpiresAt())) {
-            invitation.setStatus(Invitation.Status.EXPIRED);
-            invitation.setRespondedAt(Instant.now());
-            invitationRepository.save(invitation);
-            throw new IllegalArgumentException("Invitation has expired");
-        }
-
-        String currentUserId = groupSecurityService.getCurrentUserId();
-        User currentUser = userRepository.findById(currentUserId)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
 
         if (!currentUser.getEmail().equalsIgnoreCase(invitation.getInvitedEmail())) {
             throw new ForbiddenException("This invitation was sent to a different email address");
         }
 
-        Group group = groupRepository.findById(invitation.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException("Group", "id", invitation.getGroupId()));
-
-        boolean alreadyMember = group.getMembers() != null && group.getMembers().stream()
-                .anyMatch(m -> m.getUserId().equals(currentUserId));
-
-        if (!alreadyMember) {
-            Group.GroupMember newMember = Group.GroupMember.builder()
-                    .userId(currentUserId)
-                    .email(currentUser.getEmail())
-                    .permission(invitation.getPermission())
-                    .joinedAt(Instant.now())
-                    .build();
-
-            if (group.getMembers() == null) {
-                group.setMembers(new java.util.ArrayList<>());
-            }
-            group.getMembers().add(newMember);
-            groupRepository.save(group);
+        Group group = findGroup(invitation.getGroupId());
+        if (isMember(group, currentUser.getId(), currentUser.getEmail())) {
+            throw new AlreadyMemberException("This user is already a member of the group");
         }
+
+        Group.GroupMember newMember = Group.GroupMember.builder()
+                .userId(currentUser.getId())
+                .email(currentUser.getEmail())
+                .permission(invitation.getPermission())
+                .joinedAt(Instant.now())
+                .build();
+
+        if (group.getMembers() == null) {
+            group.setMembers(new ArrayList<>());
+        }
+        group.getMembers().add(newMember);
+        groupRepository.save(group);
 
         invitation.setStatus(Invitation.Status.ACCEPTED);
         invitation.setRespondedAt(Instant.now());
         invitationRepository.save(invitation);
 
-        // Notify existing group members that someone new joined
-        notificationService.notifyGroupMembers(
+        notificationService.send(
+                group.getOwnerId(),
+                Notification.Type.INVITATION_ACCEPTED,
                 invitation.getGroupId(),
-                currentUserId,
-                Notification.Type.MEMBER_JOINED,
-                currentUser.getEmail() + " joined the group",
-                currentUserId);
+                currentUser.getUsername() + " accepted the invitation to join " + invitation.getGroupName(),
+                invitation.getId());
 
         auditService.log(
                 invitation.getGroupId(),
                 AuditLog.Action.JOINED,
                 AuditLog.EntityType.MEMBER,
-                currentUserId,
-                new AuditLog.Performer(currentUserId, currentUser.getEmail()),
+                currentUser.getId(),
+                new AuditLog.Performer(currentUser.getId(), currentUser.getEmail()),
                 null);
+
+        return InvitationAcceptResponse.builder()
+                .groupId(invitation.getGroupId())
+                .groupName(invitation.getGroupName())
+                .requiresAuth(false)
+                .invitedEmail(invitation.getInvitedEmail())
+                .build();
     }
 
-    public List<InvitationDto> listPending(String groupId) {
-        groupRepository.findById(groupId)
-                .orElseThrow(() -> new ResourceNotFoundException("Group", "id", groupId));
+    public InvitationDeclineResponse declineInvitation(String token) {
+        Invitation invitation = findByToken(token);
+        validateInvitationForAction(invitation);
 
-        if (!groupSecurityService.hasEditAccess(groupId)) {
-            throw new ForbiddenException("You need edit access to view invitations");
-        }
+        invitation.setStatus(Invitation.Status.DECLINED);
+        invitation.setRespondedAt(Instant.now());
+        invitationRepository.save(invitation);
 
-        return invitationRepository.findByGroupIdAndStatus(groupId, Invitation.Status.PENDING)
-                .stream().map(this::toDto).collect(Collectors.toList());
+        notificationService.send(
+                invitation.getInvitedBy(),
+                Notification.Type.INVITATION_DECLINED,
+                invitation.getGroupId(),
+                invitation.getInvitedEmail() + " declined the invitation to join " + invitation.getGroupName(),
+                invitation.getId());
+
+        return InvitationDeclineResponse.builder()
+                .groupName(invitation.getGroupName())
+                .build();
     }
 
     public void cancelInvitation(String groupId, String invitationId) {
-        groupRepository.findById(groupId)
-                .orElseThrow(() -> new ResourceNotFoundException("Group", "id", groupId));
+        findGroup(groupId);
+        requireEditAccess(groupId);
 
-        if (!groupSecurityService.hasEditAccess(groupId)) {
-            throw new ForbiddenException("You need edit access to cancel invitations");
-        }
-
-        Invitation invitation = invitationRepository.findById(invitationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Invitation", "id", invitationId));
-
-        if (!invitation.getGroupId().equals(groupId)) {
-            throw new ResourceNotFoundException("Invitation", "id", invitationId);
-        }
-
+        Invitation invitation = findInvitationInGroup(groupId, invitationId);
         if (invitation.getStatus() != Invitation.Status.PENDING) {
             throw new IllegalArgumentException("Only pending invitations can be cancelled");
         }
@@ -218,6 +191,42 @@ public class InvitationService {
         invitation.setStatus(Invitation.Status.CANCELLED);
         invitation.setRespondedAt(Instant.now());
         invitationRepository.save(invitation);
+    }
+
+    public InvitationDto resendInvitation(String groupId, String invitationId) {
+        Group group = findGroup(groupId);
+        requireEditAccess(groupId);
+
+        Invitation existing = findInvitationInGroup(groupId, invitationId);
+        if (existing.getStatus() != Invitation.Status.EXPIRED && existing.getStatus() != Invitation.Status.CANCELLED) {
+            throw new IllegalArgumentException("Only expired or cancelled invitations can be resent");
+        }
+
+        assertNotMember(group, existing.getInvitedEmail());
+        assertNoPendingInvite(groupId, existing.getInvitedEmail());
+
+        User inviter = findUser(groupSecurityService.getCurrentUserId());
+        Invitation resent = createAndDispatchInvitation(group, inviter, existing.getInvitedEmail(), existing.getPermission());
+        return toDto(resent);
+    }
+
+    public List<InvitationDto> listInvitations(String groupId, Invitation.Status status) {
+        findGroup(groupId);
+        requireEditAccess(groupId);
+
+        List<Invitation> invitations = status == null
+                ? invitationRepository.findByGroupIdOrderByCreatedAtDesc(groupId)
+                : invitationRepository.findByGroupIdAndStatus(groupId, status);
+
+        return invitations.stream().map(this::toDto).collect(Collectors.toList());
+    }
+
+    public List<InvitationDto> listMyInvitations() {
+        User currentUser = findUser(groupSecurityService.getCurrentUserId());
+        return invitationRepository.findByInvitedEmailOrderByCreatedAtDesc(currentUser.getEmail())
+                .stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
     }
 
     @Scheduled(cron = "0 0 * * * *")
@@ -235,12 +244,133 @@ public class InvitationService {
         invitationRepository.saveAll(expiredInvitations);
     }
 
-    // --- helpers ---
+    private Group findGroup(String groupId) {
+        return groupRepository.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("Group", "id", groupId));
+    }
 
-    private void sendEmail(String to, String groupName, String acceptUrl) throws MessagingException {
+    private User findUser(String userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
+    }
+
+    private Invitation findByToken(String token) {
+        return invitationRepository.findByToken(token)
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation", "token", token));
+    }
+
+    private Invitation findInvitationInGroup(String groupId, String invitationId) {
+        Invitation invitation = invitationRepository.findById(invitationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation", "id", invitationId));
+        if (!invitation.getGroupId().equals(groupId)) {
+            throw new ResourceNotFoundException("Invitation", "id", invitationId);
+        }
+        return invitation;
+    }
+
+    private void requireEditAccess(String groupId) {
+        if (!groupSecurityService.hasEditAccess(groupId)) {
+            throw new ForbiddenException("You need edit access to manage invitations");
+        }
+    }
+
+    private boolean isMember(Group group, String userId, String email) {
+        if (group.getOwnerId().equals(userId)) {
+            return true;
+        }
+        return group.getMembers() != null && group.getMembers().stream()
+                .anyMatch(m -> userId.equals(m.getUserId()) ||
+                        (m.getEmail() != null && m.getEmail().equalsIgnoreCase(email)));
+    }
+
+    private void assertNotMember(Group group, String email) {
+        boolean owner = userRepository.findById(group.getOwnerId())
+                .map(User::getEmail)
+                .map(ownerEmail -> ownerEmail.equalsIgnoreCase(email))
+                .orElse(false);
+        boolean member = group.getMembers() != null && group.getMembers().stream()
+                .anyMatch(m -> m.getEmail() != null && m.getEmail().equalsIgnoreCase(email));
+        if (owner || member) {
+            throw new AlreadyMemberException("A user with this email is already a member of the group");
+        }
+    }
+
+    private void assertNoPendingInvite(String groupId, String email) {
+        if (invitationRepository.existsByGroupIdAndInvitedEmailAndStatus(groupId, email, Invitation.Status.PENDING)) {
+            throw new DuplicateInvitationException("A pending invitation already exists for this email in this group");
+        }
+    }
+
+    private void validateInvitationForAction(Invitation invitation) {
+        if (invitation.getStatus() == Invitation.Status.ACCEPTED) {
+            throw new IllegalArgumentException("Invitation has already been accepted");
+        }
+        if (invitation.getStatus() == Invitation.Status.DECLINED) {
+            throw new IllegalArgumentException("Invitation has already been declined");
+        }
+        if (invitation.getStatus() == Invitation.Status.CANCELLED) {
+            throw new IllegalArgumentException("Invitation has been cancelled");
+        }
+        if (invitation.getStatus() == Invitation.Status.EXPIRED || Instant.now().isAfter(invitation.getExpiresAt())) {
+            invitation.setStatus(Invitation.Status.EXPIRED);
+            invitation.setRespondedAt(Instant.now());
+            invitationRepository.save(invitation);
+            throw new IllegalArgumentException("Invitation has expired");
+        }
+        if (invitation.getStatus() != Invitation.Status.PENDING) {
+            throw new IllegalArgumentException("Invitation is no longer valid");
+        }
+    }
+
+    private User getAuthenticatedUserOrNull() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
+            return null;
+        }
+        return userRepository.findByUsername(auth.getName()).orElse(null);
+    }
+
+    private Invitation createAndDispatchInvitation(Group group, User inviter, String email, Group.Permission permission) {
+        String token = UUID.randomUUID().toString();
+        Instant expiresAt = Instant.now().plus(EXPIRY_HOURS, ChronoUnit.HOURS);
+
+        Invitation invitation = Invitation.builder()
+                .groupId(group.getId())
+                .groupName(group.getName())
+                .invitedEmail(email)
+                .invitedBy(inviter.getId())
+                .invitedByName(inviter.getUsername())
+                .token(token)
+                .permission(permission)
+                .status(Invitation.Status.PENDING)
+                .expiresAt(expiresAt)
+                .build();
+
+        Invitation saved = invitationRepository.save(invitation);
+
+        try {
+            sendEmail(
+                    email,
+                    group.getName(),
+                    inviter.getUsername(),
+                    permission.name(),
+                    buildAcceptUrl(token),
+                    buildDeclineUrl(token));
+        } catch (Exception e) {
+            // Email failure should not roll back the invitation record
+        }
+
+        return saved;
+    }
+
+    private void sendEmail(String to, String groupName, String invitedByName,
+                           String permission, String acceptUrl, String declineUrl) throws MessagingException {
         Context ctx = new Context();
         ctx.setVariable("groupName", groupName);
+        ctx.setVariable("invitedByName", invitedByName);
+        ctx.setVariable("permission", permission);
         ctx.setVariable("acceptUrl", acceptUrl);
+        ctx.setVariable("declineUrl", declineUrl);
         ctx.setVariable("expiryHours", EXPIRY_HOURS);
 
         String html = templateEngine.process("invitation-email", ctx);
@@ -252,6 +382,14 @@ public class InvitationService {
         helper.setSubject("You've been invited to join " + groupName);
         helper.setText(html, true);
         mailSender.send(message);
+    }
+
+    private String buildAcceptUrl(String token) {
+        return frontendUrl + "/invite/accept?token=" + token;
+    }
+
+    private String buildDeclineUrl(String token) {
+        return frontendUrl + "/invite/decline?token=" + token;
     }
 
     private InvitationDto toDto(Invitation inv) {
@@ -267,23 +405,9 @@ public class InvitationService {
                 .expiresAt(inv.getExpiresAt())
                 .createdAt(inv.getCreatedAt())
                 .respondedAt(inv.getRespondedAt())
-                .build();
-    }
-
-    private InvitationResponse toResponse(Invitation inv, String acceptUrl) {
-        return InvitationResponse.builder()
-                .id(inv.getId())
-                .groupId(inv.getGroupId())
-                .groupName(inv.getGroupName())
-                .invitedEmail(inv.getInvitedEmail())
-                .invitedBy(inv.getInvitedBy())
-                .invitedByName(inv.getInvitedByName())
-                .permission(inv.getPermission())
-                .status(inv.getStatus())
-                .expiresAt(inv.getExpiresAt())
-                .createdAt(inv.getCreatedAt())
-                .respondedAt(inv.getRespondedAt())
-                .acceptUrl(acceptUrl)
+                .directLink(buildAcceptUrl(inv.getToken()))
+                .acceptUrl(buildAcceptUrl(inv.getToken()))
+                .declineUrl(buildDeclineUrl(inv.getToken()))
                 .build();
     }
 }
