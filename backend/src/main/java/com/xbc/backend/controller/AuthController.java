@@ -69,7 +69,10 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
+        String identifier = request.getIdentifier();
+        User user = (identifier.contains("@")
+                ? userRepository.findByEmail(identifier)
+                : userRepository.findByUsername(identifier))
                 .orElseThrow(() -> new org.springframework.security.core.userdetails.UsernameNotFoundException("Invalid credentials"));
 
         authenticationManager.authenticate(

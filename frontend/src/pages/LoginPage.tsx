@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/card';
 
 const schema = z.object({
-  email: z.string().email('Please enter a valid email'),
+  identifier: z.string().min(1, 'Username or email is required'),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -38,7 +38,7 @@ export function LoginPage() {
 
   const onSubmit = async (data: FormData) => {
     try {
-      const auth = await login(data);
+      const auth = await login({ identifier: data.identifier, password: data.password });
       setAuth(auth.token, {
         id: auth.user.id,
         username: auth.user.username,
@@ -71,17 +71,17 @@ export function LoginPage() {
           <CardContent>
             <form id="login-form" onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="identifier">Username or email</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  aria-invalid={!!errors.email}
-                  {...register('email')}
+                  id="identifier"
+                  type="text"
+                  placeholder="you@example.com or johndoe"
+                  autoComplete="username"
+                  aria-invalid={!!errors.identifier}
+                  {...register('identifier')}
                 />
-                {errors.email && (
-                  <p className="text-xs text-destructive">{errors.email.message}</p>
+                {errors.identifier && (
+                  <p className="text-xs text-destructive">{errors.identifier.message}</p>
                 )}
               </div>
 
