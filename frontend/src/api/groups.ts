@@ -87,3 +87,10 @@ export async function getExpenseSummary(groupId: string) {
   );
   return res.data.data;
 }
+
+export async function getGroupInvitations(groupId: string): Promise<InvitationResult[]> {
+  const res = await api.get<ApiResponse<InvitationResult[]>>(
+    `/api/groups/${groupId}/invitations`,
+  );
+  return res.data.data;
+}
