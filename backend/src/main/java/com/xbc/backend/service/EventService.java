@@ -1,9 +1,11 @@
 package com.xbc.backend.service;
 
+import com.xbc.backend.annotation.Auditable;
 import com.xbc.backend.dto.event.CreateEventRequest;
 import com.xbc.backend.dto.event.EventDto;
 import com.xbc.backend.dto.event.UpdateEventRequest;
 import com.xbc.backend.exception.ForbiddenException;
+import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.exception.ResourceNotFoundException;
 import com.xbc.backend.model.Event;
 import com.xbc.backend.model.Expense;
@@ -39,6 +41,8 @@ public class EventService {
         this.mongoTemplate = mongoTemplate;
     }
 
+    @Auditable(action = AuditLog.Action.CREATED, entityType = AuditLog.EntityType.EVENT,
+               groupIdIndex = 0, entityIdIndex = -1)
     public EventDto createEvent(String groupId, CreateEventRequest req) {
         verifyGroupExists(groupId);
         requireViewAccess(groupId);  // must be a group member in addition to MANAGER/ADMIN role
@@ -76,6 +80,8 @@ public class EventService {
         return toDto(event, fetchExpenseTotal(eventId));
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.EVENT,
+               groupIdIndex = 0, entityIdIndex = 1)
     public EventDto updateEvent(String groupId, String eventId, UpdateEventRequest req) {
         verifyGroupExists(groupId);
         requireViewAccess(groupId);
@@ -92,6 +98,8 @@ public class EventService {
         return toDto(eventRepository.save(event), fetchExpenseTotal(eventId));
     }
 
+    @Auditable(action = AuditLog.Action.DELETED, entityType = AuditLog.EntityType.EVENT,
+               groupIdIndex = 0, entityIdIndex = 1)
     public void deleteEvent(String groupId, String eventId) {
         verifyGroupExists(groupId);
         requireViewAccess(groupId);

@@ -1,8 +1,10 @@
 package com.xbc.backend.service;
 
+import com.xbc.backend.annotation.Auditable;
 import com.xbc.backend.dto.expense.*;
 import com.xbc.backend.exception.ForbiddenException;
 import com.xbc.backend.exception.ResourceNotFoundException;
+import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Category;
 import com.xbc.backend.model.Expense;
 import com.xbc.backend.repository.CategoryRepository;
@@ -51,6 +53,8 @@ public class ExpenseService {
         this.fileService = fileService;
     }
 
+    @Auditable(action = AuditLog.Action.CREATED, entityType = AuditLog.EntityType.EXPENSE,
+               groupIdIndex = 0, entityIdIndex = -1)
     public ExpenseDto createExpense(String groupId, CreateExpenseRequest req) {
         verifyGroupExists(groupId);
         requireEditAccess(groupId);
@@ -97,6 +101,8 @@ public class ExpenseService {
         return toDto(findInGroup(groupId, expenseId));
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.EXPENSE,
+               groupIdIndex = 0, entityIdIndex = 1)
     public ExpenseDto updateExpense(String groupId, String expenseId, UpdateExpenseRequest req) {
         verifyGroupExists(groupId);
         requireViewAccess(groupId);
@@ -115,6 +121,8 @@ public class ExpenseService {
         return toDto(expenseRepository.save(expense));
     }
 
+    @Auditable(action = AuditLog.Action.DELETED, entityType = AuditLog.EntityType.EXPENSE,
+               groupIdIndex = 0, entityIdIndex = 1)
     public void deleteExpense(String groupId, String expenseId) {
         verifyGroupExists(groupId);
         requireViewAccess(groupId);

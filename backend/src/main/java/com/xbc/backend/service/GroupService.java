@@ -1,8 +1,10 @@
 package com.xbc.backend.service;
 
+import com.xbc.backend.annotation.Auditable;
 import com.xbc.backend.dto.group.*;
 import com.xbc.backend.exception.ForbiddenException;
 import com.xbc.backend.exception.ResourceNotFoundException;
+import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Group;
 import com.xbc.backend.model.Group.GroupMember;
 import com.xbc.backend.repository.GroupRepository;
@@ -29,6 +31,8 @@ public class GroupService {
         this.categoryService = categoryService;
     }
 
+    @Auditable(action = AuditLog.Action.CREATED, entityType = AuditLog.EntityType.GROUP,
+               groupIdIndex = -1, entityIdIndex = -1)
     public GroupDto createGroup(CreateGroupRequest request) {
         String userId = groupSecurityService.getCurrentUserId();
         Group group = Group.builder()
@@ -59,6 +63,8 @@ public class GroupService {
         return toDto(findOrThrow(groupId));
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.GROUP,
+               groupIdIndex = 0, entityIdIndex = 0)
     public GroupDto updateGroup(String groupId, UpdateGroupRequest request) {
         if (!groupSecurityService.isOwner(groupId)) {
             throw new ForbiddenException("Only the owner can update this group");
@@ -73,6 +79,8 @@ public class GroupService {
         return toDto(groupRepository.save(group));
     }
 
+    @Auditable(action = AuditLog.Action.DELETED, entityType = AuditLog.EntityType.GROUP,
+               groupIdIndex = 0, entityIdIndex = 0)
     public void deleteGroup(String groupId) {
         if (!groupSecurityService.isOwner(groupId)) {
             throw new ForbiddenException("Only the owner can delete this group");
@@ -81,6 +89,8 @@ public class GroupService {
         groupRepository.deleteById(groupId);
     }
 
+    @Auditable(action = AuditLog.Action.PERMISSION_CHANGED, entityType = AuditLog.EntityType.MEMBER,
+               groupIdIndex = 0, entityIdIndex = 1)
     public GroupDto updateMemberPermission(String groupId, String targetUserId, UpdatePermissionRequest request) {
         if (!groupSecurityService.hasEditAccess(groupId)) {
             throw new ForbiddenException("Only the owner or editors can change member permissions");
@@ -94,6 +104,8 @@ public class GroupService {
         return toDto(groupRepository.save(group));
     }
 
+    @Auditable(action = AuditLog.Action.LEFT, entityType = AuditLog.EntityType.MEMBER,
+               groupIdIndex = 0, entityIdIndex = 1)
     public GroupDto removeMember(String groupId, String targetUserId) {
         if (!groupSecurityService.hasEditAccess(groupId)) {
             throw new ForbiddenException("Only the owner or editors can remove members");

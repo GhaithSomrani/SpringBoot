@@ -1,8 +1,10 @@
 package com.xbc.backend.service;
 
+import com.xbc.backend.annotation.Auditable;
 import com.xbc.backend.dto.category.*;
 import com.xbc.backend.exception.ForbiddenException;
 import com.xbc.backend.exception.ResourceNotFoundException;
+import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Category;
 import com.xbc.backend.model.Category.Subcategory;
 import com.xbc.backend.repository.CategoryRepository;
@@ -29,6 +31,8 @@ public class CategoryService {
         this.groupSecurityService = groupSecurityService;
     }
 
+    @Auditable(action = AuditLog.Action.CREATED, entityType = AuditLog.EntityType.CATEGORY,
+               groupIdIndex = 0, entityIdIndex = -1)
     public CategoryDto createCategory(String groupId, CreateCategoryRequest request) {
         verifyGroupExists(groupId);
         requireEditAccess(groupId);
@@ -50,6 +54,8 @@ public class CategoryService {
                 .collect(Collectors.toList());
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.CATEGORY,
+               groupIdIndex = 0, entityIdIndex = 1)
     public CategoryDto updateCategory(String groupId, String categoryId, UpdateCategoryRequest request) {
         verifyGroupExists(groupId);
         requireEditAccess(groupId);
@@ -60,6 +66,8 @@ public class CategoryService {
         return toDto(categoryRepository.save(category));
     }
 
+    @Auditable(action = AuditLog.Action.DELETED, entityType = AuditLog.EntityType.CATEGORY,
+               groupIdIndex = 0, entityIdIndex = 1)
     public void deleteCategory(String groupId, String categoryId) {
         verifyGroupExists(groupId);
         requireEditAccess(groupId);
@@ -67,6 +75,8 @@ public class CategoryService {
         categoryRepository.deleteById(categoryId);
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.CATEGORY,
+               groupIdIndex = 0, entityIdIndex = 1)
     public CategoryDto addSubcategory(String groupId, String categoryId, CreateSubcategoryRequest request) {
         verifyGroupExists(groupId);
         requireEditAccess(groupId);
@@ -79,6 +89,8 @@ public class CategoryService {
         return toDto(categoryRepository.save(category));
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.CATEGORY,
+               groupIdIndex = 0, entityIdIndex = 1)
     public CategoryDto updateSubcategory(String groupId, String categoryId, String subId,
                                          UpdateSubcategoryRequest request) {
         verifyGroupExists(groupId);
@@ -88,6 +100,8 @@ public class CategoryService {
         return toDto(categoryRepository.save(category));
     }
 
+    @Auditable(action = AuditLog.Action.UPDATED, entityType = AuditLog.EntityType.CATEGORY,
+               groupIdIndex = 0, entityIdIndex = 1)
     public CategoryDto deleteSubcategory(String groupId, String categoryId, String subId) {
         verifyGroupExists(groupId);
         requireEditAccess(groupId);

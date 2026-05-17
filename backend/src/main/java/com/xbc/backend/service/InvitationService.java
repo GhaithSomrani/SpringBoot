@@ -5,6 +5,7 @@ import com.xbc.backend.dto.invitation.InvitationDto;
 import com.xbc.backend.dto.invitation.InvitationResponse;
 import com.xbc.backend.exception.ForbiddenException;
 import com.xbc.backend.exception.ResourceNotFoundException;
+import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Group;
 import com.xbc.backend.model.Invitation;
 import com.xbc.backend.model.User;
@@ -38,6 +39,7 @@ public class InvitationService {
     private final GroupSecurityService groupSecurityService;
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
+    private final AuditService auditService;
 
     @Value("${app.base-url}")
     private String baseUrl;
@@ -50,13 +52,15 @@ public class InvitationService {
                              UserRepository userRepository,
                              GroupSecurityService groupSecurityService,
                              JavaMailSender mailSender,
-                             TemplateEngine templateEngine) {
+                             TemplateEngine templateEngine,
+                             AuditService auditService) {
         this.invitationRepository = invitationRepository;
         this.groupRepository = groupRepository;
         this.userRepository = userRepository;
         this.groupSecurityService = groupSecurityService;
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
+        this.auditService = auditService;
     }
 
     public InvitationResponse sendInvitation(String groupId, CreateInvitationRequest req) {
@@ -143,6 +147,14 @@ public class InvitationService {
 
         invitation.setStatus(Invitation.Status.ACCEPTED);
         invitationRepository.save(invitation);
+
+        auditService.log(
+                invitation.getGroupId(),
+                AuditLog.Action.JOINED,
+                AuditLog.EntityType.MEMBER,
+                currentUserId,
+                new AuditLog.Performer(currentUserId, currentUser.getEmail()),
+                null);
     }
 
     public List<InvitationDto> listPending(String groupId) {
