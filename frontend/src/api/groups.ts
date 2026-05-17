@@ -94,3 +94,19 @@ export async function getGroupInvitations(groupId: string): Promise<InvitationRe
   );
   return res.data.data;
 }
+
+export async function updateGroup(
+  groupId: string,
+  data: { name: string; description?: string },
+): Promise<GroupDto> {
+  const res = await api.put<ApiResponse<GroupDto>>(`/api/groups/${groupId}`, data);
+  return res.data.data;
+}
+
+export async function deleteGroup(groupId: string): Promise<void> {
+  await api.delete(`/api/groups/${groupId}`);
+}
+
+export async function cancelInvitation(groupId: string, invitationId: string): Promise<void> {
+  await api.delete(`/api/groups/${groupId}/invitations/${invitationId}`);
+}

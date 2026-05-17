@@ -92,6 +92,7 @@ const SUB_PAGES = [
   { suffix: '/events',   label: 'Events',    Icon: CalendarDays,  end: false },
   { suffix: '',          label: 'Members',   Icon: Users,         end: true  },
   { suffix: '/audit',    label: 'Audit Log', Icon: ClipboardList, end: false },
+  { suffix: '/settings', label: 'Settings',  Icon: Settings,      end: false },
 ] as const;
 
 // ─── GroupNavItem ─────────────────────────────────────────────────────────────
@@ -178,10 +179,11 @@ function Breadcrumb({ groups }: { groups?: GroupDto[] }) {
     crumbs.push('My Groups');
     const group = groups?.find((g) => g.id === groupId);
     if (group) crumbs.push(group.name);
-    if (pathname.endsWith('/expenses'))    crumbs.push('Expenses');
-    else if (pathname.endsWith('/events')) crumbs.push('Events');
-    else if (pathname.endsWith('/audit'))  crumbs.push('Audit Log');
-    else                                   crumbs.push('Members');
+    if (pathname.endsWith('/expenses'))      crumbs.push('Expenses');
+    else if (pathname.endsWith('/events'))  crumbs.push('Events');
+    else if (pathname.endsWith('/audit'))   crumbs.push('Audit Log');
+    else if (pathname.endsWith('/settings')) crumbs.push('Settings');
+    else                                    crumbs.push('Members');
   }
 
   return (
