@@ -9,6 +9,7 @@ import { GroupPage } from '@/pages/GroupPage';
 import { ExpensesPage } from '@/pages/ExpensesPage';
 import { EventsPage } from '@/pages/EventsPage';
 import { AuditPage } from '@/pages/AuditPage';
+import { GroupSettingsPage } from '@/pages/GroupSettingsPage';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
             <Route path="/groups/:groupId/expenses" element={<ExpensesPage />} />
             <Route path="/groups/:groupId/events" element={<EventsPage />} />
             <Route path="/groups/:groupId/audit" element={<AuditPage />} />
+            <Route path="/groups/:groupId/settings" element={<GroupSettingsPage />} />
           </Route>
         </Route>
 
