@@ -14,11 +14,14 @@ import java.time.Instant;
 public class InvitationResponse {
     private String id;
     private String groupId;
+    private String groupName;
     private String invitedEmail;
     private String invitedBy;
+    private String invitedByName;
     private Permission permission;
     private Status status;
     private Instant expiresAt;
     private Instant createdAt;
+    private Instant respondedAt;
     private String acceptUrl;
 }

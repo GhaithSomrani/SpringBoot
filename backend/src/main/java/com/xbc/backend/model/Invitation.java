@@ -16,8 +16,10 @@ import java.time.Instant;
 public class Invitation extends BaseEntity {
 
     private String groupId;
+    private String groupName;
     private String invitedEmail;
     private String invitedBy;
+    private String invitedByName;
 
     @Indexed(unique = true)
     private String token;
@@ -25,6 +27,13 @@ public class Invitation extends BaseEntity {
     private Permission permission;
     private Status status;
     private Instant expiresAt;
+    private Instant respondedAt;
 
-    public enum Status { PENDING, ACCEPTED, EXPIRED }
+    public enum Status {
+        PENDING,
+        ACCEPTED,
+        DECLINED,
+        EXPIRED,
+        CANCELLED
+    }
 }

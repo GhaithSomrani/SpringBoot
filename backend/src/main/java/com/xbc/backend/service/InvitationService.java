@@ -18,6 +18,7 @@ import jakarta.mail.internet.MimeMessage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -25,7 +26,6 @@ import org.thymeleaf.context.Context;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -81,13 +81,17 @@ public class InvitationService {
         }
 
         String inviterId = groupSecurityService.getCurrentUserId();
+        User inviter = userRepository.findById(inviterId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
         String token = UUID.randomUUID().toString();
         Instant expiresAt = Instant.now().plus(EXPIRY_HOURS, ChronoUnit.HOURS);
 
         Invitation invitation = Invitation.builder()
                 .groupId(groupId)
+                .groupName(group.getName())
                 .invitedEmail(req.getEmail())
                 .invitedBy(inviterId)
+                .invitedByName(inviter.getUsername())
                 .token(token)
                 .permission(req.getPermission())
                 .status(Invitation.Status.PENDING)
@@ -125,6 +129,7 @@ public class InvitationService {
 
         if (Instant.now().isAfter(invitation.getExpiresAt())) {
             invitation.setStatus(Invitation.Status.EXPIRED);
+            invitation.setRespondedAt(Instant.now());
             invitationRepository.save(invitation);
             throw new IllegalArgumentException("Invitation has expired");
         }
@@ -159,6 +164,7 @@ public class InvitationService {
         }
 
         invitation.setStatus(Invitation.Status.ACCEPTED);
+        invitation.setRespondedAt(Instant.now());
         invitationRepository.save(invitation);
 
         // Notify existing group members that someone new joined
@@ -209,7 +215,24 @@ public class InvitationService {
             throw new IllegalArgumentException("Only pending invitations can be cancelled");
         }
 
-        invitationRepository.deleteById(invitationId);
+        invitation.setStatus(Invitation.Status.CANCELLED);
+        invitation.setRespondedAt(Instant.now());
+        invitationRepository.save(invitation);
+    }
+
+    @Scheduled(cron = "0 0 * * * *")
+    public void expirePendingInvitations() {
+        Instant now = Instant.now();
+        List<Invitation> expiredInvitations = invitationRepository.findExpiredInvitations(now);
+        if (expiredInvitations.isEmpty()) {
+            return;
+        }
+
+        expiredInvitations.forEach(invitation -> {
+            invitation.setStatus(Invitation.Status.EXPIRED);
+            invitation.setRespondedAt(now);
+        });
+        invitationRepository.saveAll(expiredInvitations);
     }
 
     // --- helpers ---
@@ -235,12 +258,15 @@ public class InvitationService {
         return InvitationDto.builder()
                 .id(inv.getId())
                 .groupId(inv.getGroupId())
+                .groupName(inv.getGroupName())
                 .invitedEmail(inv.getInvitedEmail())
                 .invitedBy(inv.getInvitedBy())
+                .invitedByName(inv.getInvitedByName())
                 .permission(inv.getPermission())
                 .status(inv.getStatus())
                 .expiresAt(inv.getExpiresAt())
                 .createdAt(inv.getCreatedAt())
+                .respondedAt(inv.getRespondedAt())
                 .build();
     }
 
@@ -248,12 +274,15 @@ public class InvitationService {
         return InvitationResponse.builder()
                 .id(inv.getId())
                 .groupId(inv.getGroupId())
+                .groupName(inv.getGroupName())
                 .invitedEmail(inv.getInvitedEmail())
                 .invitedBy(inv.getInvitedBy())
+                .invitedByName(inv.getInvitedByName())
                 .permission(inv.getPermission())
                 .status(inv.getStatus())
                 .expiresAt(inv.getExpiresAt())
                 .createdAt(inv.getCreatedAt())
+                .respondedAt(inv.getRespondedAt())
                 .acceptUrl(acceptUrl)
                 .build();
     }
