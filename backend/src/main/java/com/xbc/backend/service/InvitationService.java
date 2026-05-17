@@ -8,6 +8,7 @@ import com.xbc.backend.exception.ResourceNotFoundException;
 import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Group;
 import com.xbc.backend.model.Invitation;
+import com.xbc.backend.model.Notification;
 import com.xbc.backend.model.User;
 import com.xbc.backend.repository.GroupRepository;
 import com.xbc.backend.repository.InvitationRepository;
@@ -40,6 +41,7 @@ public class InvitationService {
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     @Value("${app.base-url}")
     private String baseUrl;
@@ -53,7 +55,8 @@ public class InvitationService {
                              GroupSecurityService groupSecurityService,
                              JavaMailSender mailSender,
                              TemplateEngine templateEngine,
-                             AuditService auditService) {
+                             AuditService auditService,
+                             NotificationService notificationService) {
         this.invitationRepository = invitationRepository;
         this.groupRepository = groupRepository;
         this.userRepository = userRepository;
@@ -61,6 +64,7 @@ public class InvitationService {
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
         this.auditService = auditService;
+        this.notificationService = notificationService;
     }
 
     public InvitationResponse sendInvitation(String groupId, CreateInvitationRequest req) {
@@ -98,6 +102,15 @@ public class InvitationService {
         } catch (Exception e) {
             // Email failure should not roll back the invitation record
         }
+
+        // Notify the invited user if they already have an account
+        userRepository.findByEmail(req.getEmail()).ifPresent(invitedUser ->
+                notificationService.send(
+                        invitedUser.getId(),
+                        Notification.Type.INVITE_RECEIVED,
+                        groupId,
+                        "You've been invited to join " + group.getName(),
+                        saved.getId()));
 
         return toResponse(saved, acceptUrl);
     }
@@ -147,6 +160,14 @@ public class InvitationService {
 
         invitation.setStatus(Invitation.Status.ACCEPTED);
         invitationRepository.save(invitation);
+
+        // Notify existing group members that someone new joined
+        notificationService.notifyGroupMembers(
+                invitation.getGroupId(),
+                currentUserId,
+                Notification.Type.MEMBER_JOINED,
+                currentUser.getEmail() + " joined the group",
+                currentUserId);
 
         auditService.log(
                 invitation.getGroupId(),

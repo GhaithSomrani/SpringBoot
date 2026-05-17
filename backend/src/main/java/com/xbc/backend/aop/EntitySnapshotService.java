@@ -1,6 +1,8 @@
 package com.xbc.backend.aop;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xbc.backend.model.AuditLog.EntityType;
 import com.xbc.backend.repository.*;
 import org.springframework.stereotype.Component;
@@ -12,22 +14,24 @@ import org.springframework.stereotype.Component;
 @Component
 public class EntitySnapshotService {
 
+    // ObjectMapper is thread-safe after construction; no need to inject the Spring-managed bean.
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
     private final ExpenseRepository expenseRepository;
     private final CategoryRepository categoryRepository;
     private final EventRepository eventRepository;
     private final GroupRepository groupRepository;
-    private final ObjectMapper objectMapper;
 
     public EntitySnapshotService(ExpenseRepository expenseRepository,
                                  CategoryRepository categoryRepository,
                                  EventRepository eventRepository,
-                                 GroupRepository groupRepository,
-                                 ObjectMapper objectMapper) {
+                                 GroupRepository groupRepository) {
         this.expenseRepository = expenseRepository;
         this.categoryRepository = categoryRepository;
         this.eventRepository = eventRepository;
         this.groupRepository = groupRepository;
-        this.objectMapper = objectMapper;
     }
 
     /**
@@ -51,7 +55,7 @@ public class EntitySnapshotService {
                                         .orElse(null))
                         .orElse(null);
             };
-            return entity == null ? null : objectMapper.writeValueAsString(entity);
+            return entity == null ? null : MAPPER.writeValueAsString(entity);
         } catch (Exception e) {
             return null;
         }

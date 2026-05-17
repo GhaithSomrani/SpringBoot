@@ -7,6 +7,7 @@ import com.xbc.backend.exception.ResourceNotFoundException;
 import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Group;
 import com.xbc.backend.model.Group.GroupMember;
+import com.xbc.backend.model.Notification;
 import com.xbc.backend.repository.GroupRepository;
 import org.springframework.stereotype.Service;
 
@@ -22,13 +23,16 @@ public class GroupService {
     private final GroupRepository groupRepository;
     private final GroupSecurityService groupSecurityService;
     private final CategoryService categoryService;
+    private final NotificationService notificationService;
 
     public GroupService(GroupRepository groupRepository,
                         GroupSecurityService groupSecurityService,
-                        CategoryService categoryService) {
+                        CategoryService categoryService,
+                        NotificationService notificationService) {
         this.groupRepository = groupRepository;
         this.groupSecurityService = groupSecurityService;
         this.categoryService = categoryService;
+        this.notificationService = notificationService;
     }
 
     @Auditable(action = AuditLog.Action.CREATED, entityType = AuditLog.EntityType.GROUP,
@@ -101,7 +105,14 @@ public class GroupService {
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "userId", targetUserId));
         member.setPermission(request.getPermission());
-        return toDto(groupRepository.save(group));
+        GroupDto result = toDto(groupRepository.save(group));
+        notificationService.send(
+                targetUserId,
+                Notification.Type.PERMISSION_CHANGED,
+                groupId,
+                "Your permission in the group has been updated to " + request.getPermission(),
+                groupId);
+        return result;
     }
 
     @Auditable(action = AuditLog.Action.LEFT, entityType = AuditLog.EntityType.MEMBER,

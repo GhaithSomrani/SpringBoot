@@ -1,5 +1,6 @@
 package com.xbc.backend.dto.auth;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
@@ -10,7 +11,8 @@ import lombok.*;
 public class LoginRequest {
 
     @NotBlank
-    private String username;
+    @Email
+    private String email;
 
     @NotBlank
     private String password;

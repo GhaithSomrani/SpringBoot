@@ -7,6 +7,7 @@ import com.xbc.backend.exception.ResourceNotFoundException;
 import com.xbc.backend.model.AuditLog;
 import com.xbc.backend.model.Category;
 import com.xbc.backend.model.Expense;
+import com.xbc.backend.model.Notification;
 import com.xbc.backend.repository.CategoryRepository;
 import com.xbc.backend.repository.ExpenseRepository;
 import com.xbc.backend.repository.GroupRepository;
@@ -34,18 +35,21 @@ public class ExpenseService {
     private final CategoryRepository categoryRepository;
     private final GroupSecurityService groupSecurityService;
     private final MongoTemplate mongoTemplate;
+    private final NotificationService notificationService;
     private FileService fileService;
 
     public ExpenseService(ExpenseRepository expenseRepository,
                           GroupRepository groupRepository,
                           CategoryRepository categoryRepository,
                           GroupSecurityService groupSecurityService,
-                          MongoTemplate mongoTemplate) {
+                          MongoTemplate mongoTemplate,
+                          NotificationService notificationService) {
         this.expenseRepository = expenseRepository;
         this.groupRepository = groupRepository;
         this.categoryRepository = categoryRepository;
         this.groupSecurityService = groupSecurityService;
         this.mongoTemplate = mongoTemplate;
+        this.notificationService = notificationService;
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -72,7 +76,12 @@ public class ExpenseService {
                 .addedBy(userId)
                 .eventId(req.getEventId())
                 .build();
-        return toDto(expenseRepository.save(expense));
+        ExpenseDto saved = toDto(expenseRepository.save(expense));
+        notificationService.notifyGroupMembers(groupId, userId,
+                Notification.Type.EXPENSE_ADDED,
+                "New expense added: " + req.getTitle(),
+                saved.getId());
+        return saved;
     }
 
     public PagedResponse<ExpenseDto> getExpenses(String groupId, ExpenseFilter filter,
@@ -118,7 +127,13 @@ public class ExpenseService {
         if (req.getDescription()   != null) expense.setDescription(req.getDescription());
         if (req.getAttachments()   != null) expense.setAttachments(req.getAttachments());
 
-        return toDto(expenseRepository.save(expense));
+        ExpenseDto updated = toDto(expenseRepository.save(expense));
+        String actorId = groupSecurityService.getCurrentUserId();
+        notificationService.notifyGroupMembers(groupId, actorId,
+                Notification.Type.EXPENSE_UPDATED,
+                "Expense updated: " + expense.getTitle(),
+                expenseId);
+        return updated;
     }
 
     @Auditable(action = AuditLog.Action.DELETED, entityType = AuditLog.EntityType.EXPENSE,
